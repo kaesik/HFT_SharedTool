@@ -1,512 +1,570 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Media;
 
-namespace HFT_SharedTool
+using TSM = Tekla.Structures.Model;
+
+namespace HFT_SharedTool;
+
+public partial class MainWindow
 {
-    public partial class MainWindow
+    private const string LicenseFilePath = @"Z:\000_PMJ\Tekla\HFT_sharing_lic.txt";
+    private const string DateFormat = "yyyy-MM-dd HH:mm";
+
+    public MainWindow()
     {
-        private const string LicenseFilePath = @"Z:\000_PMJ\Tekla\HFT_sharing_lic.txt";
-        private const string DateFormat = "yyyy-MM-dd HH:mm";
+        TryInitModel(out var isModelConnected, out var isSharedModel);
 
-        public MainWindow()
+        InitializeComponent();
+
+        if (isModelConnected && isSharedModel)
         {
-            InitializeComponent();
             AutoLoginCurrentUser();
+            MessageBox.Show("IsSharedModel");
         }
+        else if (isModelConnected)
+        {
+            AutoLoginCurrentUser();
+            MessageBox.Show("IsModelConnected");
+        }
+        else
+        {
+            MessageBox.Show("Standalone");
+        }
+    }
         
-        private void ClearLog()
-        {
-            LogTextBox?.Document.Blocks.Clear();
-        }
+    private static void TryInitModel(out bool isConnected, out bool isShared)
+    {
+        isConnected = false;
+        isShared = false;
 
-        private void AppendLog(string text)
-        {
-            if (LogTextBox != null)
-            {
-                LogTextBox.AppendText(text + Environment.NewLine);
-                LogTextBox.ScrollToEnd();
-            }
-        }
+        var originalOut = Console.Out;
+        var originalErr = Console.Error;
 
-        private void AppendColoredStatus(string text, bool isUsable)
+        try
         {
-            if (LogTextBox == null)
-            {
-                AppendLog(text + (isUsable ? " [USABLE]" : " [NOT USABLE]"));
+            Console.SetOut(TextWriter.Null);
+            Console.SetError(TextWriter.Null);
+
+            var model = new TSM.Model();
+            if (!model.GetConnectionStatus())
                 return;
-            }
 
-            var paragraph = new System.Windows.Documents.Paragraph(
-                new System.Windows.Documents.Run(text))
+            isConnected = true;
+
+            var info = model.GetInfo();
+            if (info != null)
+                isShared = info.SharedModel;
+        }
+        catch
+        {
+            isConnected = false;
+            isShared = false;
+        }
+        finally
+        {
+            try
             {
-                Foreground = isUsable ? Brushes.Green : Brushes.Red
-            };
+                Console.SetOut(originalOut);
+                Console.SetError(originalErr);
+            }
+            catch {
+                // ignored
+            }
+        }
+    }
 
-            LogTextBox.Document.Blocks.Add(paragraph);
+    private void ClearLog()
+    {
+        LogTextBox?.Document.Blocks.Clear();
+    }
+
+    private void AppendLog(string text)
+    {
+        if (LogTextBox != null)
+        {
+            LogTextBox.AppendText(text + Environment.NewLine);
             LogTextBox.ScrollToEnd();
         }
+    }
 
-        private class SharedLicenseInfo
+    private void AppendColoredStatus(string text, bool isUsable)
+    {
+        if (LogTextBox == null)
         {
-            public class LoginEntry
-            {
-                public string User { get; set; }
-                public DateTime Time { get; set; }
-            }
-
-            public string LicenseId { get; set; }
-            public List<LoginEntry> Logins { get; } = new List<LoginEntry>();
-            public string ReadUser { get; set; }
-            public DateTime? ReadTime { get; set; }
-            public string WriteUser { get; set; }
-            public DateTime? WriteTime { get; set; }
-            public DateTime? NextUsable { get; set; }
-
-            public void AddOrUpdateLogin(string user, DateTime time)
-            {
-                if (string.IsNullOrEmpty(user))
-                    return;
-
-                foreach (var t in Logins) {
-                    if (string.Equals(t.User, user, StringComparison.OrdinalIgnoreCase))
-                    {
-                        t.Time = time;
-                        return;
-                    }
-                }
-
-                Logins.Add(new LoginEntry
-                {
-                    User = user,
-                    Time = time
-                });
-            }
-
-            public void RemoveLogin(string user)
-            {
-                if (string.IsNullOrEmpty(user))
-                    return;
-
-                Logins.RemoveAll(l => string.Equals(l.User, user, StringComparison.OrdinalIgnoreCase));
-            }
+            AppendLog(text + (isUsable ? " [USABLE]" : " [NOT USABLE]"));
+            return;
         }
 
-        private static class SharedLicenseFileService
+        var paragraph = new System.Windows.Documents.Paragraph(
+            new System.Windows.Documents.Run(text))
         {
-            public static List<SharedLicenseInfo> LoadAll(string filePath)
-            {
-                if (!File.Exists(filePath))
-                    return new List<SharedLicenseInfo>();
+            Foreground = isUsable ? Brushes.Green : Brushes.Red
+        };
 
-                var lines = File.ReadAllLines(filePath);
-                var result = new List<SharedLicenseInfo>();
-                SharedLicenseInfo current = null;
+        LogTextBox.Document.Blocks.Add(paragraph);
+        LogTextBox.ScrollToEnd();
+    }
 
-                foreach (var raw in lines)
+    private class SharedLicenseInfo
+    {
+        public class LoginEntry
+        {
+            public string User { get; set; }
+            public DateTime Time { get; set; }
+        }
+
+        public string LicenseId { get; set; }
+        public List<LoginEntry> Logins { get; } = [];
+        public string ReadUser { get; set; }
+        public DateTime? ReadTime { get; set; }
+        public string WriteUser { get; set; }
+        public DateTime? WriteTime { get; set; }
+        public DateTime? NextUsable { get; set; }
+
+        public void AddOrUpdateLogin(string user, DateTime time)
+        {
+            if (string.IsNullOrEmpty(user))
+                return;
+
+            foreach (var t in Logins) {
+                if (string.Equals(t.User, user, StringComparison.OrdinalIgnoreCase))
                 {
-                    var line = raw.Trim();
-                    if (line.Length == 0)
-                        continue;
-
-                    var parts = line.Split(new[] { " - " }, StringSplitOptions.None);
-
-                    if (parts.Length == 1 && line.Contains("@"))
-                    {
-                        current = new SharedLicenseInfo
-                        {
-                            LicenseId = line
-                        };
-                        result.Add(current);
-                        continue;
-                    }
-
-                    if (current == null)
-                        continue;
-
-                    switch (parts.Length)
-                    {
-                        case 3:
-                        {
-                            var action = parts[0].Trim();
-                            var user = parts[1].Trim();
-                            var dateText = parts[2].Trim();
-                            if (!DateTime.TryParseExact(dateText, DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
-                                break;
-
-                            if (string.Equals(action, "LOG IN", StringComparison.OrdinalIgnoreCase))
-                            {
-                                current.AddOrUpdateLogin(user, dt);
-                            }
-                            else if (string.Equals(action, "READ IN", StringComparison.OrdinalIgnoreCase))
-                            {
-                                current.ReadUser = user;
-                                current.ReadTime = dt;
-                            }
-                            else if (string.Equals(action, "WRITE OUT", StringComparison.OrdinalIgnoreCase))
-                            {
-                                current.WriteUser = user;
-                                current.WriteTime = dt;
-                            }
-
-                            break;
-                        }
-                        case 2:
-                        {
-                            var action = parts[0].Trim();
-                            var dateText = parts[1].Trim();
-                            if (!DateTime.TryParseExact(dateText, DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
-                                break;
-
-                            if (string.Equals(action, "NEXT USABLE", StringComparison.OrdinalIgnoreCase))
-                            {
-                                current.NextUsable = dt;
-                            }
-
-                            break;
-                        }
-                    }
+                    t.Time = time;
+                    return;
                 }
-
-                return result;
             }
 
-            public static SharedLicenseInfo LoadOrCreate(string filePath, string licenseId)
+            Logins.Add(new LoginEntry
             {
-                var infos = LoadAll(filePath);
-                foreach (var info in infos)
+                User = user,
+                Time = time
+            });
+        }
+
+        public void RemoveLogin(string user)
+        {
+            if (string.IsNullOrEmpty(user))
+                return;
+
+            Logins.RemoveAll(l => string.Equals(l.User, user, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    private static class SharedLicenseFileService
+    {
+        public static List<SharedLicenseInfo> LoadAll(string filePath)
+        {
+            if (!File.Exists(filePath))
+                return [];
+
+            var lines = File.ReadAllLines(filePath);
+            var result = new List<SharedLicenseInfo>();
+            SharedLicenseInfo current = null;
+
+            foreach (var raw in lines)
+            {
+                var line = raw.Trim();
+                if (line.Length == 0)
+                    continue;
+
+                var parts = line.Split([" - "], StringSplitOptions.None);
+
+                if (parts.Length == 1 && line.Contains("@"))
                 {
-                    if (string.Equals(info.LicenseId, licenseId, StringComparison.OrdinalIgnoreCase))
-                        return info;
+                    current = new SharedLicenseInfo
+                    {
+                        LicenseId = line
+                    };
+                    result.Add(current);
+                    continue;
                 }
 
-                return new SharedLicenseInfo
-                {
-                    LicenseId = licenseId
-                };
-            }
+                if (current == null)
+                    continue;
 
-            public static void Save(string filePath, SharedLicenseInfo info)
-            {
-                var infos = LoadAll(filePath);
-                var updated = false;
-
-                for (var i = 0; i < infos.Count; i++)
+                switch (parts.Length)
                 {
-                    if (string.Equals(infos[i].LicenseId, info.LicenseId, StringComparison.OrdinalIgnoreCase))
+                    case 3:
                     {
-                        infos[i] = info;
-                        updated = true;
+                        var action = parts[0].Trim();
+                        var user = parts[1].Trim();
+                        var dateText = parts[2].Trim();
+                        if (!DateTime.TryParseExact(dateText, DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+                            break;
+
+                        if (string.Equals(action, "LOG IN", StringComparison.OrdinalIgnoreCase))
+                        {
+                            current.AddOrUpdateLogin(user, dt);
+                        }
+                        else if (string.Equals(action, "READ IN", StringComparison.OrdinalIgnoreCase))
+                        {
+                            current.ReadUser = user;
+                            current.ReadTime = dt;
+                        }
+                        else if (string.Equals(action, "WRITE OUT", StringComparison.OrdinalIgnoreCase))
+                        {
+                            current.WriteUser = user;
+                            current.WriteTime = dt;
+                        }
+
+                        break;
+                    }
+                    case 2:
+                    {
+                        var action = parts[0].Trim();
+                        var dateText = parts[1].Trim();
+                        if (!DateTime.TryParseExact(dateText, DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+                            break;
+
+                        if (string.Equals(action, "NEXT USABLE", StringComparison.OrdinalIgnoreCase))
+                        {
+                            current.NextUsable = dt;
+                        }
+
                         break;
                     }
                 }
-
-                if (!updated)
-                    infos.Add(info);
-
-                var dir = Path.GetDirectoryName(filePath);
-                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                    Directory.CreateDirectory(dir);
-
-                using (var writer = new StreamWriter(filePath, false))
-                {
-                    foreach (var lic in infos)
-                    {
-                        if (string.IsNullOrEmpty(lic.LicenseId))
-                            continue;
-
-                        writer.WriteLine(lic.LicenseId);
-
-                        string loginUser;
-                        string loginDate;
-                        if (lic.Logins.Count > 0)
-                        {
-                            var names = new string[lic.Logins.Count];
-                            for (var i = 0; i < lic.Logins.Count; i++)
-                                names[i] = lic.Logins[i].User;
-
-                            loginUser = string.Join(", ", names);
-                            var lastLogin = lic.Logins[lic.Logins.Count - 1];
-                            loginDate = lastLogin.Time.ToString(DateFormat);
-                        }
-                        else
-                        {
-                            loginUser = "-";
-                            loginDate = "-";
-                        }
-                        writer.WriteLine("LOG IN - {0} - {1}", loginUser, loginDate);
-
-                        var readUser = string.IsNullOrEmpty(lic.ReadUser) ? "-" : lic.ReadUser;
-                        var readDate = lic.ReadTime.HasValue ? lic.ReadTime.Value.ToString(DateFormat) : "-";
-                        writer.WriteLine("READ IN - {0} - {1}", readUser, readDate);
-
-                        var writeUser = string.IsNullOrEmpty(lic.WriteUser) ? "-" : lic.WriteUser;
-                        var writeDate = lic.WriteTime.HasValue ? lic.WriteTime.Value.ToString(DateFormat) : "-";
-                        writer.WriteLine("WRITE OUT - {0} - {1}", writeUser, writeDate);
-
-                        var nextUsableDate = lic.NextUsable.HasValue ? lic.NextUsable.Value.ToString(DateFormat) : "-";
-                        writer.WriteLine("NEXT USABLE - {0}", nextUsableDate);
-
-                        writer.WriteLine();
-                    }
-                }
             }
+
+            return result;
         }
 
-        private static class SharedLicenseManager
+        public static SharedLicenseInfo LoadOrCreate(string filePath, string licenseId)
         {
-            private static readonly TimeSpan HoldDuration = TimeSpan.FromHours(4);
-
-            public static void Login(SharedLicenseInfo info, string userName, DateTime loginTime)
-            {
-                info.AddOrUpdateLogin(userName, loginTime);
-            }
-
-            public static void Logout(SharedLicenseInfo info, string userName)
-            {
-                info.RemoveLogin(userName);
-            }
-
-            public static void ReadIn(SharedLicenseInfo info, string userName, DateTime readTime)
-            {
-                info.ReadUser = userName;
-                info.ReadTime = readTime;
-                info.NextUsable = readTime + HoldDuration;
-            }
-
-            public static void WriteOut(SharedLicenseInfo info, string userName, DateTime writeTime)
-            {
-                info.WriteUser = userName;
-                info.WriteTime = writeTime;
-                info.NextUsable = writeTime + HoldDuration;
-            }
-
-            public static string FormatStatus(SharedLicenseInfo info, DateTime now, out bool isUsableNow)
-            {
-                isUsableNow = true;
-
-                string activity;
-                DateTime activityTime;
-
-                var hasRead = info.ReadTime.HasValue;
-                var hasWrite = info.WriteTime.HasValue;
-
-                if (hasRead && (!hasWrite || info.ReadTime.Value > info.WriteTime.Value))
-                {
-                    activity = "READ IN";
-                    activityTime = info.ReadTime.Value;
-                }
-                else if (hasWrite)
-                {
-                    activity = "WRITE OUT";
-                    activityTime = info.WriteTime.Value;
-                }
-                else
-                {
-                    activity = "BRAK DANYCH";
-                    activityTime = now;
-                }
-
-                string user;
-                if (info.Logins.Count > 0)
-                {
-                    var names = new string[info.Logins.Count];
-                    for (var i = 0; i < info.Logins.Count; i++)
-                        names[i] = info.Logins[i].User;
-                    user = string.Join(", ", names);
-                }
-                else
-                {
-                    user = "WOLNE";
-                }
-
-                if (info.NextUsable.HasValue)
-                    isUsableNow = now >= info.NextUsable.Value;
-
-                var nextUsableText = info.NextUsable.HasValue
-                    ? info.NextUsable.Value.ToString(DateFormat)
-                    : "-";
-
-                return
-                    $"{info.LicenseId} ({user}) - {activity} {activityTime:yyyy-MM-dd HH:mm} - USABLE {nextUsableText}";
-            }
-        }
-
-        private void BtnStandaloneCheck_Click(object sender, RoutedEventArgs e)
-        {
-            ClearLog();
-
-            var infos = SharedLicenseFileService.LoadAll(LicenseFilePath);
-            if (infos == null || infos.Count == 0)
-            {
-                AppendLog("Brak danych licencji: " + LicenseFilePath);
-                return;
-            }
-
+            var infos = LoadAll(filePath);
             foreach (var info in infos)
             {
-                var line = SharedLicenseManager.FormatStatus(info, DateTime.Now, out var isUsableNow);
-                AppendColoredStatus(line, isUsableNow);
-            }
-        }
-
-        private void BtnLogin_Click(object sender, RoutedEventArgs e)
-        {
-            ClearLog();
-
-            if (!TryGetLicenseFromLog(out var licenseId, out var loginTime))
-            {
-                AppendLog("Nie znaleziono wpisu UserInfo w logu Tekli.");
-                return;
+                if (string.Equals(info.LicenseId, licenseId, StringComparison.OrdinalIgnoreCase))
+                    return info;
             }
 
-            var userName = Environment.UserName;
-            var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
-            SharedLicenseManager.Login(info, userName, loginTime);
-            SharedLicenseFileService.Save(LicenseFilePath, info);
-            AppendLog($"LOG IN - {userName} - {loginTime.ToString(DateFormat)}");
-        }
-
-        private void BtnReadIn_Click(object sender, RoutedEventArgs e)
-        {
-            ClearLog();
-
-            if (!TryGetLicenseFromLog(out var licenseId, out _))
+            return new SharedLicenseInfo
             {
-                AppendLog("Nie znaleziono wpisu UserInfo w logu Tekli.");
-                return;
-            }
-
-            var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
-            var userName = Environment.UserName;
-            var now = DateTime.Now;
-            SharedLicenseManager.ReadIn(info, userName, now);
-            SharedLicenseFileService.Save(LicenseFilePath, info);
-            AppendLog($"READ IN - {userName} - {now.ToString(DateFormat)}");
+                LicenseId = licenseId
+            };
         }
 
-        private void BtnWriteOut_Click(object sender, RoutedEventArgs e)
+        public static void Save(string filePath, SharedLicenseInfo info)
         {
-            ClearLog();
+            var infos = LoadAll(filePath);
+            var updated = false;
 
-            if (!TryGetLicenseFromLog(out var licenseId, out _))
+            for (var i = 0; i < infos.Count; i++)
             {
-                AppendLog("Nie znaleziono wpisu UserInfo w logu Tekli.");
-                return;
-            }
-
-            var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
-            var userName = Environment.UserName;
-            var now = DateTime.Now;
-            SharedLicenseManager.WriteOut(info, userName, now);
-            SharedLicenseFileService.Save(LicenseFilePath, info);
-            AppendLog($"WRITE OUT - {userName} - {now.ToString(DateFormat)}");
-        }
-
-        private void BtnCheck_Click(object sender, RoutedEventArgs e)
-        {
-            ClearLog();
-            BtnStandaloneCheck_Click(sender, e);
-        }
-
-        private static void AutoLoginCurrentUser()
-        {
-            if (!TryGetLicenseFromLog(out var licenseId, out var loginTime))
-                return;
-
-            var userName = Environment.UserName;
-            var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
-            SharedLicenseManager.Login(info, userName, loginTime);
-            SharedLicenseFileService.Save(LicenseFilePath, info);
-        }
-
-        private static void RemoveCurrentUserLogin()
-        {
-            if (!TryGetLicenseFromLog(out var licenseId, out _))
-                return;
-
-            var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
-            var userName = Environment.UserName;
-            SharedLicenseManager.Logout(info, userName);
-            SharedLicenseFileService.Save(LicenseFilePath, info);
-        }
-
-        protected override void OnClosed(EventArgs e)
-        {
-            RemoveCurrentUserLogin();
-            base.OnClosed(e);
-        }
-
-        private static bool TryGetLicenseFromLog(out string licenseId, out DateTime loginTime)
-        {
-            licenseId = null;
-            loginTime = DateTime.MinValue;
-
-            var userName = Environment.UserName;
-            var logPath = Path.Combine(@"C:\TeklaStructuresModels", "TeklaStructures_" + userName + ".log");
-            if (!File.Exists(logPath))
-                return false;
-
-            var tempPath = Path.GetTempFileName();
-
-            try
-            {
-                using (var fs = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                using (var dest = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                if (string.Equals(infos[i].LicenseId, info.LicenseId, StringComparison.OrdinalIgnoreCase))
                 {
-                    fs.CopyTo(dest);
-                }
-            }
-            catch
-            {
-                return false;
-            }
-
-            string[] lines;
-            try
-            {
-                lines = File.ReadAllLines(tempPath);
-            }
-            finally
-            {
-                try { File.Delete(tempPath); }
-                catch {
-                    // ignored
+                    infos[i] = info;
+                    updated = true;
+                    break;
                 }
             }
 
-            for (var i = lines.Length - 1; i >= 0; i--)
+            if (!updated)
+                infos.Add(info);
+
+            var dir = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            using var writer = new StreamWriter(filePath, false);
+            foreach (var lic in infos)
             {
-                var line = lines[i];
-                if (line.IndexOf("UserInfo", StringComparison.OrdinalIgnoreCase) < 0)
+                if (string.IsNullOrEmpty(lic.LicenseId))
                     continue;
 
-                var parts = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length < 3)
-                    continue;
+                writer.WriteLine(lic.LicenseId);
 
-                string lic = null;
-                foreach (var p in parts)
+                string loginUser;
+                string loginDate;
+                if (lic.Logins.Count > 0)
                 {
-                    if (p.Contains("@") && !p.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                    {
-                        lic = p.Trim();
-                        break;
-                    }
+                    var names = new string[lic.Logins.Count];
+                    for (var i = 0; i < lic.Logins.Count; i++)
+                        names[i] = lic.Logins[i].User;
+
+                    loginUser = string.Join(", ", names);
+                    var lastLogin = lic.Logins[lic.Logins.Count - 1];
+                    loginDate = lastLogin.Time.ToString(DateFormat);
                 }
+                else
+                {
+                    loginUser = "-";
+                    loginDate = "-";
+                }
+                writer.WriteLine("LOG IN - {0} - {1}", loginUser, loginDate);
 
-                if (string.IsNullOrEmpty(lic))
-                    continue;
+                var readUser = string.IsNullOrEmpty(lic.ReadUser) ? "-" : lic.ReadUser;
+                var readDate = lic.ReadTime.HasValue ? lic.ReadTime.Value.ToString(DateFormat) : "-";
+                writer.WriteLine("READ IN - {0} - {1}", readUser, readDate);
 
-                licenseId = lic;
-                loginTime = DateTime.Now;
-                return true;
+                var writeUser = string.IsNullOrEmpty(lic.WriteUser) ? "-" : lic.WriteUser;
+                var writeDate = lic.WriteTime.HasValue ? lic.WriteTime.Value.ToString(DateFormat) : "-";
+                writer.WriteLine("WRITE OUT - {0} - {1}", writeUser, writeDate);
+
+                var nextUsableDate = lic.NextUsable.HasValue ? lic.NextUsable.Value.ToString(DateFormat) : "-";
+                writer.WriteLine("NEXT USABLE - {0}", nextUsableDate);
+
+                writer.WriteLine();
+            }
+        }
+    }
+
+    private static class SharedLicenseManager
+    {
+        private static readonly TimeSpan HoldDuration = TimeSpan.FromHours(4);
+
+        public static void Login(SharedLicenseInfo info, string userName, DateTime loginTime)
+        {
+            info.AddOrUpdateLogin(userName, loginTime);
+        }
+
+        public static void Logout(SharedLicenseInfo info, string userName)
+        {
+            info.RemoveLogin(userName);
+        }
+
+        public static void ReadIn(SharedLicenseInfo info, string userName, DateTime readTime)
+        {
+            info.ReadUser = userName;
+            info.ReadTime = readTime;
+            info.NextUsable = readTime + HoldDuration;
+        }
+
+        public static void WriteOut(SharedLicenseInfo info, string userName, DateTime writeTime)
+        {
+            info.WriteUser = userName;
+            info.WriteTime = writeTime;
+            info.NextUsable = writeTime + HoldDuration;
+        }
+
+        public static string FormatStatus(SharedLicenseInfo info, DateTime now, out bool isUsableNow)
+        {
+            isUsableNow = true;
+
+            string activity;
+            string activityUser;
+            DateTime activityTime;
+
+            var hasRead = info.ReadTime.HasValue;
+            var hasWrite = info.WriteTime.HasValue;
+
+            if (hasRead && (!hasWrite || info.ReadTime.Value > info.WriteTime.Value))
+            {
+                activity = "READ IN";
+                activityUser = $"({info.ReadUser}) ";
+                activityTime = info.ReadTime.Value;
+            }
+            else if (hasWrite)
+            {
+                activity = "WRITE OUT";
+                activityUser = $"({info.WriteUser}) ";
+                activityTime = info.WriteTime.Value;
+            }
+            else
+            {
+                activity = "BRAK DANYCH";
+                activityUser = "";
+                activityTime = now;
             }
 
+            string user;
+            if (info.Logins.Count > 0)
+            {
+                var names = new string[info.Logins.Count];
+                for (var i = 0; i < info.Logins.Count; i++)
+                    names[i] = info.Logins[i].User;
+                user = string.Join(", ", names);
+            }
+            else
+            {
+                user = "WOLNE";
+            }
+
+            if (info.NextUsable.HasValue)
+                isUsableNow = now >= info.NextUsable.Value;
+
+            var nextUsableText = info.NextUsable.HasValue
+                ? info.NextUsable.Value.ToString(DateFormat)
+                : "-";
+
+            return
+                $"{info.LicenseId} ({user}) - {activity} {activityUser}{activityTime:yyyy-MM-dd HH:mm} - USABLE {nextUsableText}";
+        }
+    }
+
+    private void BtnStandaloneCheck_Click(object sender, RoutedEventArgs e)
+    {
+        ClearLog();
+
+        var infos = SharedLicenseFileService.LoadAll(LicenseFilePath);
+        if (infos == null || infos.Count == 0)
+        {
+            AppendLog("Brak danych licencji: " + LicenseFilePath);
+            return;
+        }
+
+        foreach (var info in infos)
+        {
+            var line = SharedLicenseManager.FormatStatus(info, DateTime.Now, out var isUsableNow);
+            AppendColoredStatus(line, isUsableNow);
+        }
+    }
+
+    private void BtnLogin_Click(object sender, RoutedEventArgs e)
+    {
+        ClearLog();
+
+        if (!TryGetLicenseFromLog(out var licenseId, out var loginTime))
+        {
+            AppendLog("Nie znaleziono wpisu UserInfo w logu Tekli.");
+            return;
+        }
+
+        var userName = Environment.UserName;
+        var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
+        SharedLicenseManager.Login(info, userName, loginTime);
+        SharedLicenseFileService.Save(LicenseFilePath, info);
+        AppendLog($"LOG IN - {userName} - {loginTime.ToString(DateFormat)}");
+    }
+
+    private void BtnReadIn_Click(object sender, RoutedEventArgs e)
+    {
+        ClearLog();
+
+        if (!TryGetLicenseFromLog(out var licenseId, out _))
+        {
+            AppendLog("Nie znaleziono wpisu UserInfo w logu Tekli.");
+            return;
+        }
+
+        var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
+        var userName = Environment.UserName;
+        var now = DateTime.Now;
+        SharedLicenseManager.ReadIn(info, userName, now);
+        SharedLicenseFileService.Save(LicenseFilePath, info);
+        AppendLog($"READ IN - {userName} - {now.ToString(DateFormat)}");
+    }
+
+    private void BtnWriteOut_Click(object sender, RoutedEventArgs e)
+    {
+        ClearLog();
+
+        if (!TryGetLicenseFromLog(out var licenseId, out _))
+        {
+            AppendLog("Nie znaleziono wpisu UserInfo w logu Tekli.");
+            return;
+        }
+
+        var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
+        var userName = Environment.UserName;
+        var now = DateTime.Now;
+        SharedLicenseManager.WriteOut(info, userName, now);
+        SharedLicenseFileService.Save(LicenseFilePath, info);
+        AppendLog($"WRITE OUT - {userName} - {now.ToString(DateFormat)}");
+    }
+
+    private void BtnCheck_Click(object sender, RoutedEventArgs e)
+    {
+        ClearLog();
+        BtnStandaloneCheck_Click(sender, e);
+    }
+
+    private static void AutoLoginCurrentUser()
+    {
+        if (!TryGetLicenseFromLog(out var licenseId, out var loginTime))
+            return;
+
+        var userName = Environment.UserName;
+        var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
+        SharedLicenseManager.Login(info, userName, loginTime);
+        SharedLicenseFileService.Save(LicenseFilePath, info);
+    }
+
+    private static void RemoveCurrentUserLogin()
+    {
+        if (!TryGetLicenseFromLog(out var licenseId, out _))
+            return;
+
+        var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
+        var userName = Environment.UserName;
+        SharedLicenseManager.Logout(info, userName);
+        SharedLicenseFileService.Save(LicenseFilePath, info);
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        RemoveCurrentUserLogin();
+        base.OnClosed(e);
+    }
+
+    private static bool TryGetLicenseFromLog(out string licenseId, out DateTime loginTime)
+    {
+        licenseId = null;
+        loginTime = DateTime.MinValue;
+
+        var userName = Environment.UserName;
+        var logPath = Path.Combine(@"C:\TeklaStructuresModels", "TeklaStructures_" + userName + ".log");
+        if (!File.Exists(logPath))
+            return false;
+
+        var tempPath = Path.GetTempFileName();
+
+        try {
+            using var fs = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var dest = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
+            fs.CopyTo(dest);
+        }
+        catch
+        {
             return false;
         }
+
+        string[] lines;
+        try
+        {
+            lines = File.ReadAllLines(tempPath);
+        }
+        finally
+        {
+            try { File.Delete(tempPath); }
+            catch {
+                // ignored
+            }
+        }
+
+        for (var i = lines.Length - 1; i >= 0; i--)
+        {
+            var line = lines[i];
+            if (line.IndexOf("UserInfo", StringComparison.OrdinalIgnoreCase) < 0)
+                continue;
+
+            var parts = line.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 3)
+                continue;
+
+            string lic = null;
+            foreach (var p in parts)
+            {
+                if (p.Contains("@") && !p.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                {
+                    lic = p.Trim();
+                    break;
+                }
+            }
+
+            if (string.IsNullOrEmpty(lic))
+                continue;
+
+            licenseId = lic;
+            loginTime = DateTime.Now;
+            return true;
+        }
+
+        return false;
     }
 }

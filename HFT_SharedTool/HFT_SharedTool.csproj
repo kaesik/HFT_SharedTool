@@ -14,6 +14,7 @@
         <ProjectTypeGuids>{60dc8134-eba5-43b8-bcc9-bb4bc16c2548};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
         <WarningLevel>4</WarningLevel>
         <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+        <LangVersion>latest</LangVersion>
     </PropertyGroup>
     <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
         <PlatformTarget>AnyCPU</PlatformTarget>
@@ -35,12 +36,94 @@
         <WarningLevel>4</WarningLevel>
     </PropertyGroup>
     <ItemGroup>
+        <Reference Include="LibTessDotNet, Version=2.0.0.0, Culture=neutral, PublicKeyToken=93c0f7e4f1ca9619, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Common.Geometry.4.6.4\lib\net\LibTessDotNet.dll</HintPath>
+        </Reference>
+        <Reference Include="mscorlib" />
         <Reference Include="System"/>
+        <Reference Include="System.Buffers, Version=4.0.3.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
+          <HintPath>..\packages\System.Buffers.4.5.1\lib\net461\System.Buffers.dll</HintPath>
+        </Reference>
+        <Reference Include="System.Configuration" />
         <Reference Include="System.Core"/>
         <Reference Include="System.Data"/>
+        <Reference Include="System.Memory, Version=4.0.1.2, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
+          <HintPath>..\packages\System.Memory.4.5.5\lib\net461\System.Memory.dll</HintPath>
+        </Reference>
+        <Reference Include="System.Numerics" />
+        <Reference Include="System.Numerics.Vectors, Version=4.1.4.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+          <HintPath>..\packages\System.Numerics.Vectors.4.5.0\lib\net46\System.Numerics.Vectors.dll</HintPath>
+        </Reference>
+        <Reference Include="System.Runtime.CompilerServices.Unsafe, Version=6.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+          <HintPath>..\packages\System.Runtime.CompilerServices.Unsafe.6.0.0\lib\net461\System.Runtime.CompilerServices.Unsafe.dll</HintPath>
+        </Reference>
+        <Reference Include="System.Runtime.Remoting" />
         <Reference Include="System.Xml"/>
         <Reference Include="System.Xaml">
             <RequiredTargetFramework>4.0</RequiredTargetFramework>
+        </Reference>
+        <Reference Include="Tekla.Application.Library, Version=2024.0.0.0, Culture=neutral, PublicKeyToken=2f04dbe497b71114, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Application.Library.2024.0.0\lib\net48\Tekla.Application.Library.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.BIM.DirectManipulation, Version=2024.0.0.0, Culture=neutral, PublicKeyToken=2f04dbe497b71114, processorArchitecture=Amd64">
+          <HintPath>..\packages\Tekla.BIM.DirectManipulation.2024.0.0\lib\net48\Tekla.BIM.DirectManipulation.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.Common.Geometry, Version=4.6.0.0, Culture=neutral, PublicKeyToken=93c0f7e4f1ca9619, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Common.Geometry.4.6.4\lib\net\Tekla.Common.Geometry.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.Common.Geometry.Algorithms, Version=4.6.2.0, Culture=neutral, PublicKeyToken=93c0f7e4f1ca9619, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Common.Geometry.4.6.4\lib\net\Tekla.Common.Geometry.Algorithms.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.Common.Geometry.Primitives, Version=4.5.0.0, Culture=neutral, PublicKeyToken=93c0f7e4f1ca9619, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Common.Geometry.4.6.4\lib\net\Tekla.Common.Geometry.Primitives.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.Common.Geometry.Shapes, Version=4.6.4.0, Culture=neutral, PublicKeyToken=93c0f7e4f1ca9619, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Common.Geometry.4.6.4\lib\net\Tekla.Common.Geometry.Shapes.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.Common.Geometry.Shapes.Tools, Version=4.6.4.0, Culture=neutral, PublicKeyToken=93c0f7e4f1ca9619, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Common.Geometry.4.6.4\lib\net\Tekla.Common.Geometry.Shapes.Tools.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.Common.Geometry.Topology, Version=4.6.4.0, Culture=neutral, PublicKeyToken=93c0f7e4f1ca9619, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Common.Geometry.4.6.4\lib\net\Tekla.Common.Geometry.Topology.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.Structures, Version=2024.0.0.0, Culture=neutral, PublicKeyToken=2f04dbe497b71114, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Structures.2024.0.0\lib\net48\Tekla.Structures.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.Structures.Analysis, Version=2024.0.0.0, Culture=neutral, PublicKeyToken=2f04dbe497b71114, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Structures.Analysis.2024.0.0\lib\net48\Tekla.Structures.Analysis.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.Structures.Catalogs, Version=2024.0.0.0, Culture=neutral, PublicKeyToken=2f04dbe497b71114, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Structures.Catalogs.2024.0.0\lib\net48\Tekla.Structures.Catalogs.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.Structures.CustomPropertyPlugin, Version=2024.0.0.0, Culture=neutral, PublicKeyToken=2f04dbe497b71114, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Structures.CustomPropertyPlugin.2024.0.0\lib\net48\Tekla.Structures.CustomPropertyPlugin.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.Structures.Datatype, Version=2024.0.0.0, Culture=neutral, PublicKeyToken=2f04dbe497b71114, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Structures.Datatype.2024.0.0\lib\net48\Tekla.Structures.Datatype.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.Structures.Dialog, Version=2024.0.0.0, Culture=neutral, PublicKeyToken=2f04dbe497b71114, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Structures.Dialog.2024.0.0\lib\net48\Tekla.Structures.Dialog.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.Structures.Drawing, Version=2024.0.0.0, Culture=neutral, PublicKeyToken=2f04dbe497b71114, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Structures.Drawing.2024.0.0\lib\net48\Tekla.Structures.Drawing.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.Structures.DrawingPresentationModel, Version=2024.0.0.0, Culture=neutral, PublicKeyToken=2f04dbe497b71114, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Structures.DrawingPresentationModel.2024.0.0\lib\net48\Tekla.Structures.DrawingPresentationModel.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.Structures.Model, Version=2024.0.0.0, Culture=neutral, PublicKeyToken=2f04dbe497b71114, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Structures.Model.2024.0.0\lib\net48\Tekla.Structures.Model.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.Structures.Plugins, Version=2024.0.0.0, Culture=neutral, PublicKeyToken=2f04dbe497b71114, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Structures.Plugins.2024.0.0\lib\net48\Tekla.Structures.Plugins.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.Structures.Plugins.DirectManipulation, Version=2024.0.0.0, Culture=neutral, PublicKeyToken=2f04dbe497b71114, processorArchitecture=Amd64">
+          <HintPath>..\packages\Tekla.Structures.Plugins.DirectManipulation.2024.0.0\lib\net48\Tekla.Structures.Plugins.DirectManipulation.dll</HintPath>
+        </Reference>
+        <Reference Include="Tekla.Technology.Serialization, Version=4.1.0.0, Culture=neutral, PublicKeyToken=a70cba4ef557ee03, processorArchitecture=MSIL">
+          <HintPath>..\packages\Tekla.Technology.Serialization.4.1.1\lib\netstandard2.0\Tekla.Technology.Serialization.dll</HintPath>
+        </Reference>
+        <Reference Include="Trimble.Remoting, Version=1.0.0.0, Culture=neutral, PublicKeyToken=a70cba4ef557ee03, processorArchitecture=MSIL">
+          <HintPath>..\packages\Trimble.Remoting.1.0.2\lib\netstandard2.0\Trimble.Remoting.dll</HintPath>
         </Reference>
         <Reference Include="WindowsBase"/>
         <Reference Include="PresentationCore"/>
@@ -80,6 +163,25 @@
     </ItemGroup>
     <ItemGroup>
         <None Include="App.config"/>
+        <None Include="packages.config" />
+    </ItemGroup>
+    <ItemGroup>
+      <Content Include="Resources\element_catalog_cross_section.bmp" />
+      <Content Include="Resources\element_catalog_cross_section_sketch.bmp" />
+      <Content Include="Resources\element_catalog_cross_section_user.bmp" />
+      <Content Include="Resources\prtyp_tree_1.bmp" />
+      <Content Include="Resources\prtyp_tree_10.bmp" />
+      <Content Include="Resources\prtyp_tree_11.bmp" />
+      <Content Include="Resources\prtyp_tree_13.bmp" />
+      <Content Include="Resources\prtyp_tree_15.bmp" />
+      <Content Include="Resources\prtyp_tree_2.bmp" />
+      <Content Include="Resources\prtyp_tree_3.bmp" />
+      <Content Include="Resources\prtyp_tree_4.bmp" />
+      <Content Include="Resources\prtyp_tree_5.bmp" />
+      <Content Include="Resources\prtyp_tree_6.bmp" />
+      <Content Include="Resources\prtyp_tree_7.bmp" />
+      <Content Include="Resources\prtyp_tree_8.bmp" />
+      <Content Include="Resources\prtyp_tree_9.bmp" />
     </ItemGroup>
     <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets"/>
 </Project>
