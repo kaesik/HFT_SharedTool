@@ -4,15 +4,15 @@
         Title="HFT Shared Tool" Height="400" Width="700">
     <Grid Margin="8">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <Button Content="Standalone CHECK" Margin="0,0,8,0" Click="BtnStandaloneCheck_Click"/>
-            <Button Content="LOG IN" Margin="0,0,8,0" Click="BtnLogin_Click"/>
-            <Button Content="READ IN" Margin="0,0,8,0" Click="BtnReadIn_Click"/>
-            <Button Content="WRITE OUT" Margin="0,0,8,0" Click="BtnWriteOut_Click"/>
-            <Button Content="CHECK" Click="BtnCheck_Click"/>
+            <Button Content="Standalone CHECK" Margin="0,0,8,0" Click="BtnStandaloneCheck_Click" />
+            <Button Content="LOG IN" Margin="0,0,8,0" Click="BtnLogin_Click" />
+            <Button Content="READ IN" Margin="0,0,8,0" Click="BtnReadIn_Click" />
+            <Button Content="WRITE OUT" Margin="0,0,8,0" Click="BtnWriteOut_Click" />
+            <Button Content="CHECK" Click="BtnCheck_Click" />
         </StackPanel>
         <RichTextBox x:Name="LogTextBox" Grid.Row="1" />
     </Grid>

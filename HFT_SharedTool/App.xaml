@@ -4,6 +4,6 @@
              xmlns:local="clr-namespace:HFT_SharedTool"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-         
+
     </Application.Resources>
 </Application>

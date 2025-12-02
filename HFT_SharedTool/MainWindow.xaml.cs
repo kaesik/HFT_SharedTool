@@ -4,48 +4,40 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Media;
-
 using TSM = Tekla.Structures.Model;
 
 namespace HFT_SharedTool;
 
-public partial class MainWindow
-{
+public partial class MainWindow {
     private const string LicenseFilePath = @"Z:\000_PMJ\Tekla\HFT_sharing_lic.txt";
     private const string DateFormat = "yyyy-MM-dd HH:mm";
 
-    public MainWindow()
-    {
+    public MainWindow() {
         TryInitModel(out var isModelConnected, out var isSharedModel);
 
         InitializeComponent();
 
-        if (isModelConnected && isSharedModel)
-        {
+        if (isModelConnected && isSharedModel) {
             AutoLoginCurrentUser();
             MessageBox.Show("IsSharedModel");
         }
-        else if (isModelConnected)
-        {
+        else if (isModelConnected) {
             AutoLoginCurrentUser();
             MessageBox.Show("IsModelConnected");
         }
-        else
-        {
+        else {
             MessageBox.Show("Standalone");
         }
     }
-        
-    private static void TryInitModel(out bool isConnected, out bool isShared)
-    {
+
+    private static void TryInitModel(out bool isConnected, out bool isShared) {
         isConnected = false;
         isShared = false;
 
         var originalOut = Console.Out;
         var originalErr = Console.Error;
 
-        try
-        {
+        try {
             Console.SetOut(TextWriter.Null);
             Console.SetError(TextWriter.Null);
 
@@ -59,15 +51,12 @@ public partial class MainWindow
             if (info != null)
                 isShared = info.SharedModel;
         }
-        catch
-        {
+        catch {
             isConnected = false;
             isShared = false;
         }
-        finally
-        {
-            try
-            {
+        finally {
+            try {
                 Console.SetOut(originalOut);
                 Console.SetError(originalErr);
             }
@@ -77,31 +66,25 @@ public partial class MainWindow
         }
     }
 
-    private void ClearLog()
-    {
+    private void ClearLog() {
         LogTextBox?.Document.Blocks.Clear();
     }
 
-    private void AppendLog(string text)
-    {
-        if (LogTextBox != null)
-        {
+    private void AppendLog(string text) {
+        if (LogTextBox != null) {
             LogTextBox.AppendText(text + Environment.NewLine);
             LogTextBox.ScrollToEnd();
         }
     }
 
-    private void AppendColoredStatus(string text, bool isUsable)
-    {
-        if (LogTextBox == null)
-        {
+    private void AppendColoredStatus(string text, bool isUsable) {
+        if (LogTextBox == null) {
             AppendLog(text + (isUsable ? " [USABLE]" : " [NOT USABLE]"));
             return;
         }
 
         var paragraph = new System.Windows.Documents.Paragraph(
-            new System.Windows.Documents.Run(text))
-        {
+            new System.Windows.Documents.Run(text)) {
             Foreground = isUsable ? Brushes.Green : Brushes.Red
         };
 
@@ -109,10 +92,8 @@ public partial class MainWindow
         LogTextBox.ScrollToEnd();
     }
 
-    private class SharedLicenseInfo
-    {
-        public class LoginEntry
-        {
+    private class SharedLicenseInfo {
+        public class LoginEntry {
             public string User { get; set; }
             public DateTime Time { get; set; }
         }
@@ -125,28 +106,24 @@ public partial class MainWindow
         public DateTime? WriteTime { get; set; }
         public DateTime? NextUsable { get; set; }
 
-        public void AddOrUpdateLogin(string user, DateTime time)
-        {
+        public void AddOrUpdateLogin(string user, DateTime time) {
             if (string.IsNullOrEmpty(user))
                 return;
 
             foreach (var t in Logins) {
-                if (string.Equals(t.User, user, StringComparison.OrdinalIgnoreCase))
-                {
+                if (string.Equals(t.User, user, StringComparison.OrdinalIgnoreCase)) {
                     t.Time = time;
                     return;
                 }
             }
 
-            Logins.Add(new LoginEntry
-            {
+            Logins.Add(new LoginEntry {
                 User = user,
                 Time = time
             });
         }
 
-        public void RemoveLogin(string user)
-        {
+        public void RemoveLogin(string user) {
             if (string.IsNullOrEmpty(user))
                 return;
 
@@ -154,10 +131,8 @@ public partial class MainWindow
         }
     }
 
-    private static class SharedLicenseFileService
-    {
-        public static List<SharedLicenseInfo> LoadAll(string filePath)
-        {
+    private static class SharedLicenseFileService {
+        public static List<SharedLicenseInfo> LoadAll(string filePath) {
             if (!File.Exists(filePath))
                 return [];
 
@@ -165,18 +140,15 @@ public partial class MainWindow
             var result = new List<SharedLicenseInfo>();
             SharedLicenseInfo current = null;
 
-            foreach (var raw in lines)
-            {
+            foreach (var raw in lines) {
                 var line = raw.Trim();
                 if (line.Length == 0)
                     continue;
 
                 var parts = line.Split([" - "], StringSplitOptions.None);
 
-                if (parts.Length == 1 && line.Contains("@"))
-                {
-                    current = new SharedLicenseInfo
-                    {
+                if (parts.Length == 1 && line.Contains("@")) {
+                    current = new SharedLicenseInfo {
                         LicenseId = line
                     };
                     result.Add(current);
@@ -186,42 +158,37 @@ public partial class MainWindow
                 if (current == null)
                     continue;
 
-                switch (parts.Length)
-                {
-                    case 3:
-                    {
+                switch (parts.Length) {
+                    case 3: {
                         var action = parts[0].Trim();
                         var user = parts[1].Trim();
                         var dateText = parts[2].Trim();
-                        if (!DateTime.TryParseExact(dateText, DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+                        if (!DateTime.TryParseExact(dateText, DateFormat, CultureInfo.InvariantCulture,
+                                DateTimeStyles.None, out var dt))
                             break;
 
-                        if (string.Equals(action, "LOG IN", StringComparison.OrdinalIgnoreCase))
-                        {
+                        if (string.Equals(action, "LOG IN", StringComparison.OrdinalIgnoreCase)) {
                             current.AddOrUpdateLogin(user, dt);
                         }
-                        else if (string.Equals(action, "READ IN", StringComparison.OrdinalIgnoreCase))
-                        {
+                        else if (string.Equals(action, "READ IN", StringComparison.OrdinalIgnoreCase)) {
                             current.ReadUser = user;
                             current.ReadTime = dt;
                         }
-                        else if (string.Equals(action, "WRITE OUT", StringComparison.OrdinalIgnoreCase))
-                        {
+                        else if (string.Equals(action, "WRITE OUT", StringComparison.OrdinalIgnoreCase)) {
                             current.WriteUser = user;
                             current.WriteTime = dt;
                         }
 
                         break;
                     }
-                    case 2:
-                    {
+                    case 2: {
                         var action = parts[0].Trim();
                         var dateText = parts[1].Trim();
-                        if (!DateTime.TryParseExact(dateText, DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+                        if (!DateTime.TryParseExact(dateText, DateFormat, CultureInfo.InvariantCulture,
+                                DateTimeStyles.None, out var dt))
                             break;
 
-                        if (string.Equals(action, "NEXT USABLE", StringComparison.OrdinalIgnoreCase))
-                        {
+                        if (string.Equals(action, "NEXT USABLE", StringComparison.OrdinalIgnoreCase)) {
                             current.NextUsable = dt;
                         }
 
@@ -233,30 +200,24 @@ public partial class MainWindow
             return result;
         }
 
-        public static SharedLicenseInfo LoadOrCreate(string filePath, string licenseId)
-        {
+        public static SharedLicenseInfo LoadOrCreate(string filePath, string licenseId) {
             var infos = LoadAll(filePath);
-            foreach (var info in infos)
-            {
+            foreach (var info in infos) {
                 if (string.Equals(info.LicenseId, licenseId, StringComparison.OrdinalIgnoreCase))
                     return info;
             }
 
-            return new SharedLicenseInfo
-            {
+            return new SharedLicenseInfo {
                 LicenseId = licenseId
             };
         }
 
-        public static void Save(string filePath, SharedLicenseInfo info)
-        {
+        public static void Save(string filePath, SharedLicenseInfo info) {
             var infos = LoadAll(filePath);
             var updated = false;
 
-            for (var i = 0; i < infos.Count; i++)
-            {
-                if (string.Equals(infos[i].LicenseId, info.LicenseId, StringComparison.OrdinalIgnoreCase))
-                {
+            for (var i = 0; i < infos.Count; i++) {
+                if (string.Equals(infos[i].LicenseId, info.LicenseId, StringComparison.OrdinalIgnoreCase)) {
                     infos[i] = info;
                     updated = true;
                     break;
@@ -271,8 +232,7 @@ public partial class MainWindow
                 Directory.CreateDirectory(dir);
 
             using var writer = new StreamWriter(filePath, false);
-            foreach (var lic in infos)
-            {
+            foreach (var lic in infos) {
                 if (string.IsNullOrEmpty(lic.LicenseId))
                     continue;
 
@@ -280,8 +240,7 @@ public partial class MainWindow
 
                 string loginUser;
                 string loginDate;
-                if (lic.Logins.Count > 0)
-                {
+                if (lic.Logins.Count > 0) {
                     var names = new string[lic.Logins.Count];
                     for (var i = 0; i < lic.Logins.Count; i++)
                         names[i] = lic.Logins[i].User;
@@ -290,11 +249,11 @@ public partial class MainWindow
                     var lastLogin = lic.Logins[lic.Logins.Count - 1];
                     loginDate = lastLogin.Time.ToString(DateFormat);
                 }
-                else
-                {
+                else {
                     loginUser = "-";
                     loginDate = "-";
                 }
+
                 writer.WriteLine("LOG IN - {0} - {1}", loginUser, loginDate);
 
                 var readUser = string.IsNullOrEmpty(lic.ReadUser) ? "-" : lic.ReadUser;
@@ -313,36 +272,30 @@ public partial class MainWindow
         }
     }
 
-    private static class SharedLicenseManager
-    {
+    private static class SharedLicenseManager {
         private static readonly TimeSpan HoldDuration = TimeSpan.FromHours(4);
 
-        public static void Login(SharedLicenseInfo info, string userName, DateTime loginTime)
-        {
+        public static void Login(SharedLicenseInfo info, string userName, DateTime loginTime) {
             info.AddOrUpdateLogin(userName, loginTime);
         }
 
-        public static void Logout(SharedLicenseInfo info, string userName)
-        {
+        public static void Logout(SharedLicenseInfo info, string userName) {
             info.RemoveLogin(userName);
         }
 
-        public static void ReadIn(SharedLicenseInfo info, string userName, DateTime readTime)
-        {
+        public static void ReadIn(SharedLicenseInfo info, string userName, DateTime readTime) {
             info.ReadUser = userName;
             info.ReadTime = readTime;
             info.NextUsable = readTime + HoldDuration;
         }
 
-        public static void WriteOut(SharedLicenseInfo info, string userName, DateTime writeTime)
-        {
+        public static void WriteOut(SharedLicenseInfo info, string userName, DateTime writeTime) {
             info.WriteUser = userName;
             info.WriteTime = writeTime;
             info.NextUsable = writeTime + HoldDuration;
         }
 
-        public static string FormatStatus(SharedLicenseInfo info, DateTime now, out bool isUsableNow)
-        {
+        public static string FormatStatus(SharedLicenseInfo info, DateTime now, out bool isUsableNow) {
             isUsableNow = true;
 
             string activity;
@@ -352,35 +305,30 @@ public partial class MainWindow
             var hasRead = info.ReadTime.HasValue;
             var hasWrite = info.WriteTime.HasValue;
 
-            if (hasRead && (!hasWrite || info.ReadTime.Value > info.WriteTime.Value))
-            {
+            if (hasRead && (!hasWrite || info.ReadTime.Value > info.WriteTime.Value)) {
                 activity = "READ IN";
                 activityUser = $"({info.ReadUser}) ";
                 activityTime = info.ReadTime.Value;
             }
-            else if (hasWrite)
-            {
+            else if (hasWrite) {
                 activity = "WRITE OUT";
                 activityUser = $"({info.WriteUser}) ";
                 activityTime = info.WriteTime.Value;
             }
-            else
-            {
+            else {
                 activity = "BRAK DANYCH";
                 activityUser = "";
                 activityTime = now;
             }
 
             string user;
-            if (info.Logins.Count > 0)
-            {
+            if (info.Logins.Count > 0) {
                 var names = new string[info.Logins.Count];
                 for (var i = 0; i < info.Logins.Count; i++)
                     names[i] = info.Logins[i].User;
                 user = string.Join(", ", names);
             }
-            else
-            {
+            else {
                 user = "WOLNE";
             }
 
@@ -396,30 +344,25 @@ public partial class MainWindow
         }
     }
 
-    private void BtnStandaloneCheck_Click(object sender, RoutedEventArgs e)
-    {
+    private void BtnStandaloneCheck_Click(object sender, RoutedEventArgs e) {
         ClearLog();
 
         var infos = SharedLicenseFileService.LoadAll(LicenseFilePath);
-        if (infos == null || infos.Count == 0)
-        {
+        if (infos == null || infos.Count == 0) {
             AppendLog("Brak danych licencji: " + LicenseFilePath);
             return;
         }
 
-        foreach (var info in infos)
-        {
+        foreach (var info in infos) {
             var line = SharedLicenseManager.FormatStatus(info, DateTime.Now, out var isUsableNow);
             AppendColoredStatus(line, isUsableNow);
         }
     }
 
-    private void BtnLogin_Click(object sender, RoutedEventArgs e)
-    {
+    private void BtnLogin_Click(object sender, RoutedEventArgs e) {
         ClearLog();
 
-        if (!TryGetLicenseFromLog(out var licenseId, out var loginTime))
-        {
+        if (!TryGetLicenseFromLog(out var licenseId, out var loginTime)) {
             AppendLog("Nie znaleziono wpisu UserInfo w logu Tekli.");
             return;
         }
@@ -431,12 +374,10 @@ public partial class MainWindow
         AppendLog($"LOG IN - {userName} - {loginTime.ToString(DateFormat)}");
     }
 
-    private void BtnReadIn_Click(object sender, RoutedEventArgs e)
-    {
+    private void BtnReadIn_Click(object sender, RoutedEventArgs e) {
         ClearLog();
 
-        if (!TryGetLicenseFromLog(out var licenseId, out _))
-        {
+        if (!TryGetLicenseFromLog(out var licenseId, out _)) {
             AppendLog("Nie znaleziono wpisu UserInfo w logu Tekli.");
             return;
         }
@@ -449,12 +390,10 @@ public partial class MainWindow
         AppendLog($"READ IN - {userName} - {now.ToString(DateFormat)}");
     }
 
-    private void BtnWriteOut_Click(object sender, RoutedEventArgs e)
-    {
+    private void BtnWriteOut_Click(object sender, RoutedEventArgs e) {
         ClearLog();
 
-        if (!TryGetLicenseFromLog(out var licenseId, out _))
-        {
+        if (!TryGetLicenseFromLog(out var licenseId, out _)) {
             AppendLog("Nie znaleziono wpisu UserInfo w logu Tekli.");
             return;
         }
@@ -467,14 +406,12 @@ public partial class MainWindow
         AppendLog($"WRITE OUT - {userName} - {now.ToString(DateFormat)}");
     }
 
-    private void BtnCheck_Click(object sender, RoutedEventArgs e)
-    {
+    private void BtnCheck_Click(object sender, RoutedEventArgs e) {
         ClearLog();
         BtnStandaloneCheck_Click(sender, e);
     }
 
-    private static void AutoLoginCurrentUser()
-    {
+    private static void AutoLoginCurrentUser() {
         if (!TryGetLicenseFromLog(out var licenseId, out var loginTime))
             return;
 
@@ -484,8 +421,7 @@ public partial class MainWindow
         SharedLicenseFileService.Save(LicenseFilePath, info);
     }
 
-    private static void RemoveCurrentUserLogin()
-    {
+    private static void RemoveCurrentUserLogin() {
         if (!TryGetLicenseFromLog(out var licenseId, out _))
             return;
 
@@ -495,14 +431,12 @@ public partial class MainWindow
         SharedLicenseFileService.Save(LicenseFilePath, info);
     }
 
-    protected override void OnClosed(EventArgs e)
-    {
+    protected override void OnClosed(EventArgs e) {
         RemoveCurrentUserLogin();
         base.OnClosed(e);
     }
 
-    private static bool TryGetLicenseFromLog(out string licenseId, out DateTime loginTime)
-    {
+    private static bool TryGetLicenseFromLog(out string licenseId, out DateTime loginTime) {
         licenseId = null;
         loginTime = DateTime.MinValue;
 
@@ -518,26 +452,24 @@ public partial class MainWindow
             using var dest = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
             fs.CopyTo(dest);
         }
-        catch
-        {
+        catch {
             return false;
         }
 
         string[] lines;
-        try
-        {
+        try {
             lines = File.ReadAllLines(tempPath);
         }
-        finally
-        {
-            try { File.Delete(tempPath); }
+        finally {
+            try {
+                File.Delete(tempPath);
+            }
             catch {
                 // ignored
             }
         }
 
-        for (var i = lines.Length - 1; i >= 0; i--)
-        {
+        for (var i = lines.Length - 1; i >= 0; i--) {
             var line = lines[i];
             if (line.IndexOf("UserInfo", StringComparison.OrdinalIgnoreCase) < 0)
                 continue;
@@ -547,10 +479,8 @@ public partial class MainWindow
                 continue;
 
             string lic = null;
-            foreach (var p in parts)
-            {
-                if (p.Contains("@") && !p.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                {
+            foreach (var p in parts) {
+                if (p.Contains("@") && !p.StartsWith("http", StringComparison.OrdinalIgnoreCase)) {
                     lic = p.Trim();
                     break;
                 }
