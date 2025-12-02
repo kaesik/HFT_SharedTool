@@ -1,0 +1,14 @@
+C:\Users\PMJ-KSobania2\RiderProjects\HFT_SharedTool\HFT_SharedTool\bin\Debug\HFT_SharedTool.exe.config
+C:\Users\PMJ-KSobania2\RiderProjects\HFT_SharedTool\HFT_SharedTool\bin\Debug\HFT_SharedTool.exe
+C:\Users\PMJ-KSobania2\RiderProjects\HFT_SharedTool\HFT_SharedTool\bin\Debug\HFT_SharedTool.pdb
+C:\Users\PMJ-KSobania2\RiderProjects\HFT_SharedTool\HFT_SharedTool\obj\Debug\HFT_SharedTool.csproj.AssemblyReference.cache
+C:\Users\PMJ-KSobania2\RiderProjects\HFT_SharedTool\HFT_SharedTool\obj\Debug\MainWindow.baml
+C:\Users\PMJ-KSobania2\RiderProjects\HFT_SharedTool\HFT_SharedTool\obj\Debug\MainWindow.g.cs
+C:\Users\PMJ-KSobania2\RiderProjects\HFT_SharedTool\HFT_SharedTool\obj\Debug\App.g.cs
+C:\Users\PMJ-KSobania2\RiderProjects\HFT_SharedTool\HFT_SharedTool\obj\Debug\HFT_SharedTool_MarkupCompile.cache
+C:\Users\PMJ-KSobania2\RiderProjects\HFT_SharedTool\HFT_SharedTool\obj\Debug\HFT_SharedTool.g.resources
+C:\Users\PMJ-KSobania2\RiderProjects\HFT_SharedTool\HFT_SharedTool\obj\Debug\HFT_SharedTool.Properties.Resources.resources
+C:\Users\PMJ-KSobania2\RiderProjects\HFT_SharedTool\HFT_SharedTool\obj\Debug\HFT_SharedTool.csproj.GenerateResource.cache
+C:\Users\PMJ-KSobania2\RiderProjects\HFT_SharedTool\HFT_SharedTool\obj\Debug\HFT_SharedTool.csproj.CoreCompileInputs.cache
+C:\Users\PMJ-KSobania2\RiderProjects\HFT_SharedTool\HFT_SharedTool\obj\Debug\HFT_SharedTool.exe
+C:\Users\PMJ-KSobania2\RiderProjects\HFT_SharedTool\HFT_SharedTool\obj\Debug\HFT_SharedTool.pdb
