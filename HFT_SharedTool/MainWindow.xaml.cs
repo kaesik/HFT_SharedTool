@@ -12,67 +12,91 @@ public partial class MainWindow {
     private const string LicenseFilePath = @"Z:\000_PMJ\Tekla\HFT_sharing_lic.txt";
     private const string DateFormat = "yyyy-MM-dd HH:mm";
 
-    public MainWindow() {
-        // TryInitModel(out var isModelConnected, out var isSharedModel);
-        //
-        // InitializeComponent();
-        //
-        // switch (isModelConnected) {
-        //     case true when isSharedModel:
-        //         AutoLoginCurrentUser();
-        //         MessageBox.Show("IsSharedModel");
-        //         break;
-        //     case true:
-        //         MessageBox.Show("IsModelConnected");
-        //         break;
-        //     default:
-        //         MessageBox.Show("Standalone");
-        //         break;
-        // }
-        
+    private readonly string _mode;
+
+    public MainWindow() : this("standalone") { }
+
+    public MainWindow(string mode) {
+        _mode = mode?.ToLowerInvariant() ?? "standalone";
+
         var model = new TSM.Model();
         InitializeComponent();
-        
-        if (model.GetConnectionStatus() && model.GetInfo().SharedModel) {
-            ModelDrawingLabel.Content = model.GetInfo().ModelName.Replace(".db1", "");
-            AutoLoginCurrentUser();
-            MessageBox.Show("IsSharedModel");
-        }
-        else if (model.GetConnectionStatus()) {
-            ModelDrawingLabel.Content = model.GetInfo().ModelName.Replace(".db1", "");
-            MessageBox.Show("IsModelConnected");
+
+        if (_mode != "standalone") {
+            switch (_mode) {
+                case "autologin":
+                    MessageBox.Show("autologin");
+                    break;
+                case "readin":
+                    MessageBox.Show("readin");
+                    break;
+                case "writeout":
+                    MessageBox.Show("writeout");
+                    break;
+            }
         }
         else {
-            MessageBox.Show("Standalone");
+            MessageBox.Show("standalone");
+        }
+
+        if (model.GetConnectionStatus() && model.GetInfo().SharedModel) {
+            var modelName = model.GetInfo().ModelName.Replace(".db1", "");
+            ModelDrawingLabel.Content = $"Połączono z {modelName}";
+            AutoLoginCurrentUser();
         }
     }
 
-    private void TryInitModel(out bool isConnected, out bool isShared) {
-        isConnected = false;
-        isShared = false;
+    #region nwm czm nie działa
 
-        try {
-            var model = new TSM.Model();
-            ModelDrawingLabel.Content = model.GetInfo().ModelName.Replace(".db1", "");
-            if (!model.GetConnectionStatus()) return;
+    // public MainWindow() {
+    //     TryInitModel(out var isModelConnected, out var isSharedModel);
+    //     
+    //     InitializeComponent();
+    //     
+    //     switch (isModelConnected) {
+    //         case true when isSharedModel:
+    //             AutoLoginCurrentUser();
+    //             MessageBox.Show("IsSharedModel");
+    //             break;
+    //         case true:
+    //             MessageBox.Show("IsModelConnected");
+    //             break;
+    //         default:
+    //             MessageBox.Show("Standalone");
+    //             break;
+    //     }
+    // }
+    
+    // private void TryInitModel(out bool isConnected, out bool isShared) {
+    //     isConnected = false;
+    //     isShared = false;
+    //
+    //     try {
+    //         var model = new TSM.Model();
+    //         ModelDrawingLabel.Content = model.GetInfo().ModelName.Replace(".db1", "");
+    //         if (!model.GetConnectionStatus()) return;
+    //
+    //         isConnected = true;
+    //
+    //         try {
+    //             var info = model.GetInfo();
+    //             if (!info.SharedModel) return;
+    //             
+    //             isShared = true;
+    //         }
+    //         catch {
+    //             isShared = false;
+    //         }
+    //     }
+    //     catch {
+    //         isConnected = false;
+    //     }
+    // }
 
-            isConnected = true;
+    #endregion
 
-            try {
-                var info = model.GetInfo();
-                if (!info.SharedModel) return;
-                
-                isShared = true;
-            }
-            catch {
-                isShared = false;
-            }
-        }
-        catch {
-            isConnected = false;
-        }
-    }
-
+    #region Logging Helpers
+    
     private void ClearLog() {
         LogTextBox?.Document.Blocks.Clear();
     }
@@ -98,6 +122,8 @@ public partial class MainWindow {
         LogTextBox.Document.Blocks.Add(paragraph);
         LogTextBox.ScrollToEnd();
     }
+
+    #endregion
 
     private class SharedLicenseInfo {
         public class LoginEntry {
@@ -422,6 +448,8 @@ public partial class MainWindow {
 
     #endregion
 
+    #region Auto Login/Logout
+    
     private static void AutoLoginCurrentUser() {
         if (!TryGetLicenseFromLog(out var licenseId, out var loginTime))
             return;
@@ -507,4 +535,6 @@ public partial class MainWindow {
 
         return false;
     }
+
+    #endregion
 }
