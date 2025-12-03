@@ -13,24 +13,33 @@ public partial class MainWindow {
     private const string DateFormat = "yyyy-MM-dd HH:mm";
 
     public MainWindow() {
-        TryInitModel(out var isModelConnected, out var isSharedModel);
-
-        InitializeComponent();
-
-        if (isModelConnected && isSharedModel) {
-            AutoLoginCurrentUser();
-            MessageBox.Show("IsSharedModel");
-        }
-        else if (isModelConnected) {
-            AutoLoginCurrentUser();
-            MessageBox.Show("IsModelConnected");
+        var myModel = new TSM.Model();
+        if (myModel.GetConnectionStatus()) {
+            InitializeComponent();
+            ModelDrawingLabel.Content = myModel.GetInfo().ModelName.Replace(".db1", "");
         }
         else {
-            MessageBox.Show("Standalone");
+            MessageBox.Show("Keine Verbindung zu Tekla Structures");
         }
+        
+        // TryInitModel(out var isModelConnected, out var isSharedModel);
+        //
+        // InitializeComponent();
+        //
+        // if (isModelConnected && isSharedModel) {
+        //     AutoLoginCurrentUser();
+        //     MessageBox.Show("IsSharedModel");
+        // }
+        // else if (isModelConnected) {
+        //     AutoLoginCurrentUser();
+        //     MessageBox.Show("IsModelConnected");
+        // }
+        // else {
+        //     MessageBox.Show("Standalone");
+        // }
     }
 
-    private static void TryInitModel(out bool isConnected, out bool isShared) {
+    private void TryInitModel(out bool isConnected, out bool isShared) {
         isConnected = false;
         isShared = false;
 
@@ -42,6 +51,7 @@ public partial class MainWindow {
             Console.SetError(TextWriter.Null);
 
             var model = new TSM.Model();
+            ModelDrawingLabel.Content = model.GetInfo().ModelName.Replace(".db1", "");
             if (!model.GetConnectionStatus())
                 return;
 
@@ -344,6 +354,8 @@ public partial class MainWindow {
         }
     }
 
+    #region Event Handlers
+
     private void BtnStandaloneCheck_Click(object sender, RoutedEventArgs e) {
         ClearLog();
 
@@ -410,6 +422,8 @@ public partial class MainWindow {
         ClearLog();
         BtnStandaloneCheck_Click(sender, e);
     }
+
+    #endregion
 
     private static void AutoLoginCurrentUser() {
         if (!TryGetLicenseFromLog(out var licenseId, out var loginTime))
