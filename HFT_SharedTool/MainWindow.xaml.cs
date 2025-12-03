@@ -13,66 +13,63 @@ public partial class MainWindow {
     private const string DateFormat = "yyyy-MM-dd HH:mm";
 
     public MainWindow() {
-        var myModel = new TSM.Model();
-        if (myModel.GetConnectionStatus()) {
-            InitializeComponent();
-            ModelDrawingLabel.Content = myModel.GetInfo().ModelName.Replace(".db1", "");
-        }
-        else {
-            MessageBox.Show("Keine Verbindung zu Tekla Structures");
-        }
-        
         // TryInitModel(out var isModelConnected, out var isSharedModel);
         //
         // InitializeComponent();
         //
-        // if (isModelConnected && isSharedModel) {
-        //     AutoLoginCurrentUser();
-        //     MessageBox.Show("IsSharedModel");
+        // switch (isModelConnected) {
+        //     case true when isSharedModel:
+        //         AutoLoginCurrentUser();
+        //         MessageBox.Show("IsSharedModel");
+        //         break;
+        //     case true:
+        //         MessageBox.Show("IsModelConnected");
+        //         break;
+        //     default:
+        //         MessageBox.Show("Standalone");
+        //         break;
         // }
-        // else if (isModelConnected) {
-        //     AutoLoginCurrentUser();
-        //     MessageBox.Show("IsModelConnected");
-        // }
-        // else {
-        //     MessageBox.Show("Standalone");
-        // }
+        
+        var model = new TSM.Model();
+        InitializeComponent();
+        
+        if (model.GetConnectionStatus() && model.GetInfo().SharedModel) {
+            ModelDrawingLabel.Content = model.GetInfo().ModelName.Replace(".db1", "");
+            AutoLoginCurrentUser();
+            MessageBox.Show("IsSharedModel");
+        }
+        else if (model.GetConnectionStatus()) {
+            ModelDrawingLabel.Content = model.GetInfo().ModelName.Replace(".db1", "");
+            MessageBox.Show("IsModelConnected");
+        }
+        else {
+            MessageBox.Show("Standalone");
+        }
     }
 
     private void TryInitModel(out bool isConnected, out bool isShared) {
         isConnected = false;
         isShared = false;
 
-        var originalOut = Console.Out;
-        var originalErr = Console.Error;
-
         try {
-            Console.SetOut(TextWriter.Null);
-            Console.SetError(TextWriter.Null);
-
             var model = new TSM.Model();
             ModelDrawingLabel.Content = model.GetInfo().ModelName.Replace(".db1", "");
-            if (!model.GetConnectionStatus())
-                return;
+            if (!model.GetConnectionStatus()) return;
 
             isConnected = true;
 
-            var info = model.GetInfo();
-            if (info != null)
-                isShared = info.SharedModel;
+            try {
+                var info = model.GetInfo();
+                if (!info.SharedModel) return;
+                
+                isShared = true;
+            }
+            catch {
+                isShared = false;
+            }
         }
         catch {
             isConnected = false;
-            isShared = false;
-        }
-        finally {
-            try {
-                Console.SetOut(originalOut);
-                Console.SetError(originalErr);
-            }
-            catch {
-                // ignored
-            }
         }
     }
 
