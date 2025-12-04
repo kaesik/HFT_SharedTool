@@ -5,7 +5,9 @@ using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
+using TS = Tekla.Structures;
 using TSM = Tekla.Structures.Model;
+using TSMO = Tekla.Structures.Model.Operations;
 
 namespace HFT_SharedTool;
 
@@ -15,7 +17,9 @@ public partial class MainWindow {
 
     private readonly string _mode;
     private bool _autoLoginDone;
-    private TSM.Model _model;
+    private bool _logoutDone;
+    private string _pathDirectory;
+    private TSM.Events _events;
 
     public MainWindow() : this("standalone") { }
 
@@ -36,13 +40,17 @@ public partial class MainWindow {
             return;
         }
 
-        _model = model;
+        _events = new TSM.Events();
+        _events.ModelUnloading += OnModelUnloading;
+        _events.TeklaStructuresExit += OnTeklaStructuresExit;
+        _events.Register();
 
         var modelName = model.GetInfo().ModelName.Replace(".db1", "");
         ModelDrawingLabel.Content = $"Połączono z {modelName}";
 
         switch (_mode) {
             case "autologin":
+                HideWindow();
                 Loaded += (_, _) => StartAutoLoginWatcher();
                 break;
 
@@ -379,29 +387,35 @@ public partial class MainWindow {
             info.NextUsable = writeTime + HoldDuration;
         }
 
-        public static string FormatStatus(SharedLicenseInfo info, DateTime now, out bool isUsableNow) {
-            isUsableNow = true;
-
+        public static string FormatStatus(
+            SharedLicenseInfo info,
+            DateTime now,
+            string currentUser,
+            out bool isUsableForCurrentUser)
+        {
             string activity;
-            string activityUser;
+            string activityUserDisplay;
             DateTime activityTime;
+            string latestActivityUserName = null;
 
             var hasRead = info.ReadTime.HasValue;
             var hasWrite = info.WriteTime.HasValue;
 
             if (hasRead && (!hasWrite || info.ReadTime.Value > info.WriteTime.Value)) {
                 activity = "READ IN";
-                activityUser = $"({info.ReadUser}) ";
+                activityUserDisplay = $"({info.ReadUser}) ";
                 activityTime = info.ReadTime.Value;
+                latestActivityUserName = info.ReadUser;
             }
             else if (hasWrite) {
                 activity = "WRITE OUT";
-                activityUser = $"({info.WriteUser}) ";
+                activityUserDisplay = $"({info.WriteUser}) ";
                 activityTime = info.WriteTime.Value;
+                latestActivityUserName = info.WriteUser;
             }
             else {
                 activity = "BRAK DANYCH";
-                activityUser = "";
+                activityUserDisplay = "";
                 activityTime = now;
             }
 
@@ -416,15 +430,20 @@ public partial class MainWindow {
                 user = "WOLNE";
             }
 
-            if (info.NextUsable.HasValue)
-                isUsableNow = now >= info.NextUsable.Value;
+            var isAfterHold = !info.NextUsable.HasValue || now >= info.NextUsable.Value;
+
+            var isCurrentHolder = !string.IsNullOrEmpty(latestActivityUserName) &&
+                                  !string.IsNullOrEmpty(currentUser) &&
+                                  string.Equals(latestActivityUserName, currentUser, StringComparison.OrdinalIgnoreCase);
+
+            isUsableForCurrentUser = isAfterHold || isCurrentHolder;
 
             var nextUsableText = info.NextUsable.HasValue
                 ? info.NextUsable.Value.ToString(DateFormat)
                 : "-";
 
             return
-                $"{info.LicenseId} ({user}) - {activity} {activityUser}{activityTime:yyyy-MM-dd HH:mm} - USABLE {nextUsableText}";
+                $"{info.LicenseId} ({user}) - {activity} {activityUserDisplay}{activityTime:yyyy-MM-dd HH:mm} - USABLE {nextUsableText}";
         }
     }
 
@@ -441,6 +460,7 @@ public partial class MainWindow {
         var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
         var userName = Environment.UserName;
         var now = DateTime.Now;
+        ReadIn();
         SharedLicenseManager.ReadIn(info, userName, now);
         SharedLicenseFileService.Save(LicenseFilePath, info);
         AppendLog($"READ IN - {userName} - {now.ToString(DateFormat)}");
@@ -457,6 +477,7 @@ public partial class MainWindow {
         var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
         var userName = Environment.UserName;
         var now = DateTime.Now;
+        WriteOut();
         SharedLicenseManager.WriteOut(info, userName, now);
         SharedLicenseFileService.Save(LicenseFilePath, info);
         AppendLog($"WRITE OUT - {userName} - {now.ToString(DateFormat)}");
@@ -471,12 +492,14 @@ public partial class MainWindow {
             return;
         }
 
+        var currentUser = Environment.UserName;
+
         foreach (var info in infos) {
-            var line = SharedLicenseManager.FormatStatus(info, DateTime.Now, out var isUsableNow);
-            AppendColoredStatus(line, isUsableNow);
+            var line = SharedLicenseManager.FormatStatus(info, DateTime.Now, currentUser, out var isUsableForCurrentUser);
+            AppendColoredStatus(line, isUsableForCurrentUser);
         }
     }
-
+    
     #endregion
 
     #region Auto Login/Logout
@@ -497,7 +520,6 @@ public partial class MainWindow {
                     SharedLicenseFileService.Save(LicenseFilePath, info);
                     _autoLoginDone = true;
                     AppendLog($"LOG IN - {userName} - {loginTime.ToString(DateFormat)}");
-                    await StartModelMonitor();
                     break;
                 }
 
@@ -509,33 +531,21 @@ public partial class MainWindow {
         }
     }
 
-    private async Task StartModelMonitor() {
-        if (_model == null)
-            return;
+    private void OnModelUnloading() {
+        HandleModelClosed();
+    }
 
-        while (true) {
-            bool connected;
-            var shared = false;
+    private void OnTeklaStructuresExit() {
+        HandleModelClosed();
+    }
 
-            try {
-                connected = _model.GetConnectionStatus();
-                if (connected) {
-                    var info = _model.GetInfo();
-                    shared = info.SharedModel;
-                }
-            }
-            catch {
-                connected = false;
-            }
-
-            if (!connected || !shared) {
-                RemoveCurrentUserLogin();
-                Application.Current.Dispatcher.Invoke(Close);
-                break;
-            }
-
-            await Task.Delay(TimeSpan.FromMinutes(1));
+    private void HandleModelClosed() {
+        if (_mode == "autologin" && !_logoutDone) {
+            RemoveCurrentUserLogin();
+            _logoutDone = true;
         }
+
+        Application.Current.Dispatcher.Invoke(Close);
     }
 
     private static void RemoveCurrentUserLogin() {
@@ -549,7 +559,18 @@ public partial class MainWindow {
     }
 
     protected override void OnClosed(EventArgs e) {
-        if (_mode == "autologin") RemoveCurrentUserLogin();
+        if (_mode == "autologin" && !_logoutDone) {
+            RemoveCurrentUserLogin();
+            _logoutDone = true;
+        }
+
+        if (_events != null) {
+            _events.ModelUnloading -= OnModelUnloading;
+            _events.TeklaStructuresExit -= OnTeklaStructuresExit;
+            _events.UnRegister();
+            _events = null;
+        }
+
         base.OnClosed(e);
     }
 
@@ -612,6 +633,18 @@ public partial class MainWindow {
         }
 
         return false;
+    }
+
+    #endregion
+
+    #region Scripts
+    
+    private static void ReadIn() {
+        TSMO.Operation.RunMacro(@"C:\TeklaStructures\2024.0\Environments\common\extensions\SharedTool\ReadIn.cs");
+    }
+
+    private static void WriteOut() {
+        TSMO.Operation.RunMacro(@"C:\TeklaStructures\2024.0\Environments\common\extensions\SharedTool\WriteOut.cs");
     }
 
     #endregion
