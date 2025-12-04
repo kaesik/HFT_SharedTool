@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
 using TSM = Tekla.Structures.Model;
@@ -13,37 +14,87 @@ public partial class MainWindow {
     private const string DateFormat = "yyyy-MM-dd HH:mm";
 
     private readonly string _mode;
+    private bool _autoLoginDone;
+    private TSM.Model _model;
 
     public MainWindow() : this("standalone") { }
 
     public MainWindow(string mode) {
         _mode = mode?.ToLowerInvariant() ?? "standalone";
 
-        var model = new TSM.Model();
         InitializeComponent();
 
-        if (_mode != "standalone") {
-            switch (_mode) {
-                case "autologin":
-                    MessageBox.Show("autologin");
-                    break;
-                case "readin":
-                    MessageBox.Show("readin");
-                    break;
-                case "writeout":
-                    MessageBox.Show("writeout");
-                    break;
-            }
-        }
-        else {
-            MessageBox.Show("standalone");
+        if (_mode == "standalone") {
+            ModelDrawingLabel.Content = "Tryb odczytu pliku licencji";
+            Loaded += (_, _) => BtnCheck_Click();
+            return;
         }
 
-        if (model.GetConnectionStatus() && model.GetInfo().SharedModel) {
-            var modelName = model.GetInfo().ModelName.Replace(".db1", "");
-            ModelDrawingLabel.Content = $"Połączono z {modelName}";
-            AutoLoginCurrentUser();
+        if (!TryWaitForSharedModel(out var model)) {
+            ModelDrawingLabel.Content = "Brak połączenia z modelem współdzielonym";
+            Close();
+            return;
         }
+
+        _model = model;
+
+        var modelName = model.GetInfo().ModelName.Replace(".db1", "");
+        ModelDrawingLabel.Content = $"Połączono z {modelName}";
+
+        switch (_mode) {
+            case "autologin":
+                Loaded += (_, _) => StartAutoLoginWatcher();
+                break;
+
+            case "readin":
+                HideWindow();
+                BtnReadIn_Click();
+                Close();
+                break;
+
+            case "writeout":
+                HideWindow();
+                BtnWriteOut_Click();
+                Close();
+                break;
+
+            case "check":
+                BtnCheck_Click();
+                break;
+
+            default:
+                Loaded += (_, _) => BtnCheck_Click();
+                break;
+        }
+    }
+
+    private void HideWindow() {
+        WindowState = WindowState.Minimized;
+        ShowInTaskbar = false;
+        Visibility = Visibility.Hidden;
+    }
+    
+    private static bool TryWaitForSharedModel(out TSM.Model model, int maxWaitSeconds = 300, int delayMs = 2000) {
+        model = new TSM.Model();
+        var start = DateTime.Now;
+
+        while (DateTime.Now - start < TimeSpan.FromSeconds(maxWaitSeconds)) {
+            try {
+                if (model.GetConnectionStatus()) {
+                    var info = model.GetInfo();
+                    if (info.SharedModel)
+                        return true;
+                }
+            }
+            catch {
+                // ignored
+            }
+
+            System.Threading.Thread.Sleep(delayMs);
+        }
+
+        model = null;
+        return false;
     }
 
     #region nwm czm nie działa
@@ -379,37 +430,7 @@ public partial class MainWindow {
 
     #region Event Handlers
 
-    private void BtnStandaloneCheck_Click(object sender, RoutedEventArgs e) {
-        ClearLog();
-
-        var infos = SharedLicenseFileService.LoadAll(LicenseFilePath);
-        if (infos == null || infos.Count == 0) {
-            AppendLog("Brak danych licencji: " + LicenseFilePath);
-            return;
-        }
-
-        foreach (var info in infos) {
-            var line = SharedLicenseManager.FormatStatus(info, DateTime.Now, out var isUsableNow);
-            AppendColoredStatus(line, isUsableNow);
-        }
-    }
-
-    private void BtnLogin_Click(object sender, RoutedEventArgs e) {
-        ClearLog();
-
-        if (!TryGetLicenseFromLog(out var licenseId, out var loginTime)) {
-            AppendLog("Nie znaleziono wpisu UserInfo w logu Tekli.");
-            return;
-        }
-
-        var userName = Environment.UserName;
-        var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
-        SharedLicenseManager.Login(info, userName, loginTime);
-        SharedLicenseFileService.Save(LicenseFilePath, info);
-        AppendLog($"LOG IN - {userName} - {loginTime.ToString(DateFormat)}");
-    }
-
-    private void BtnReadIn_Click(object sender, RoutedEventArgs e) {
+    private void BtnReadIn_Click() {
         ClearLog();
 
         if (!TryGetLicenseFromLog(out var licenseId, out _)) {
@@ -425,7 +446,7 @@ public partial class MainWindow {
         AppendLog($"READ IN - {userName} - {now.ToString(DateFormat)}");
     }
 
-    private void BtnWriteOut_Click(object sender, RoutedEventArgs e) {
+    private void BtnWriteOut_Click() {
         ClearLog();
 
         if (!TryGetLicenseFromLog(out var licenseId, out _)) {
@@ -441,23 +462,80 @@ public partial class MainWindow {
         AppendLog($"WRITE OUT - {userName} - {now.ToString(DateFormat)}");
     }
 
-    private void BtnCheck_Click(object sender, RoutedEventArgs e) {
+    private void BtnCheck_Click() {
         ClearLog();
-        BtnStandaloneCheck_Click(sender, e);
+
+        var infos = SharedLicenseFileService.LoadAll(LicenseFilePath);
+        if (infos == null || infos.Count == 0) {
+            AppendLog("Brak danych licencji: " + LicenseFilePath);
+            return;
+        }
+
+        foreach (var info in infos) {
+            var line = SharedLicenseManager.FormatStatus(info, DateTime.Now, out var isUsableNow);
+            AppendColoredStatus(line, isUsableNow);
+        }
     }
 
     #endregion
 
     #region Auto Login/Logout
-    
-    private static void AutoLoginCurrentUser() {
-        if (!TryGetLicenseFromLog(out var licenseId, out var loginTime))
+
+    private async void StartAutoLoginWatcher() {
+        try {
+            ClearLog();
+            AppendLog("Czekam na wpis UserInfo w logu Tekli...");
+
+            var start = DateTime.Now;
+            var maxWait = TimeSpan.FromMinutes(5);
+
+            while (!_autoLoginDone && DateTime.Now - start < maxWait) {
+                if (TryGetLicenseFromLog(out var licenseId, out var loginTime)) {
+                    var userName = Environment.UserName;
+                    var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
+                    SharedLicenseManager.Login(info, userName, loginTime);
+                    SharedLicenseFileService.Save(LicenseFilePath, info);
+                    _autoLoginDone = true;
+                    AppendLog($"LOG IN - {userName} - {loginTime.ToString(DateFormat)}");
+                    await StartModelMonitor();
+                    break;
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(5));
+            }
+        }
+        catch {
+            // ignored
+        }
+    }
+
+    private async Task StartModelMonitor() {
+        if (_model == null)
             return;
 
-        var userName = Environment.UserName;
-        var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
-        SharedLicenseManager.Login(info, userName, loginTime);
-        SharedLicenseFileService.Save(LicenseFilePath, info);
+        while (true) {
+            bool connected;
+            var shared = false;
+
+            try {
+                connected = _model.GetConnectionStatus();
+                if (connected) {
+                    var info = _model.GetInfo();
+                    shared = info.SharedModel;
+                }
+            }
+            catch {
+                connected = false;
+            }
+
+            if (!connected || !shared) {
+                RemoveCurrentUserLogin();
+                Application.Current.Dispatcher.Invoke(Close);
+                break;
+            }
+
+            await Task.Delay(TimeSpan.FromMinutes(1));
+        }
     }
 
     private static void RemoveCurrentUserLogin() {
@@ -471,7 +549,7 @@ public partial class MainWindow {
     }
 
     protected override void OnClosed(EventArgs e) {
-        RemoveCurrentUserLogin();
+        if (_mode == "autologin") RemoveCurrentUserLogin();
         base.OnClosed(e);
     }
 
@@ -537,4 +615,5 @@ public partial class MainWindow {
     }
 
     #endregion
+
 }

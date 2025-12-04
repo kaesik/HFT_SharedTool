@@ -8,11 +8,6 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <Button Content="Standalone CHECK" Margin="0,0,8,0" Click="BtnStandaloneCheck_Click" />
-            <Button Content="LOG IN" Margin="0,0,8,0" Click="BtnLogin_Click" />
-            <Button Content="READ IN" Margin="0,0,8,0" Click="BtnReadIn_Click" />
-            <Button Content="WRITE OUT" Margin="0,0,8,0" Click="BtnWriteOut_Click" />
-            <Button Content="CHECK" Click="BtnCheck_Click" />
             <Label x:Name="ModelDrawingLabel" Content="" HorizontalAlignment="Left" Margin="10,0,0,0" />
         </StackPanel>
         <RichTextBox x:Name="LogTextBox" Grid.Row="1" />
