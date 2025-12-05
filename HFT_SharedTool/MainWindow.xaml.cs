@@ -5,7 +5,6 @@ using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
-using TS = Tekla.Structures;
 using TSM = Tekla.Structures.Model;
 using TSMO = Tekla.Structures.Model.Operations;
 
@@ -18,7 +17,6 @@ public partial class MainWindow {
     private readonly string _mode;
     private bool _autoLoginDone;
     private bool _logoutDone;
-    private string _pathDirectory;
     private TSM.Events _events;
 
     public MainWindow() : this("standalone") { }
@@ -82,11 +80,13 @@ public partial class MainWindow {
         Visibility = Visibility.Hidden;
     }
     
-    private static bool TryWaitForSharedModel(out TSM.Model model, int maxWaitSeconds = 300, int delayMs = 2000) {
+    private static bool TryWaitForSharedModel(out TSM.Model model, int maxWaitSeconds = 300, int delaySeconds = 5) {
         model = new TSM.Model();
+        var timeout = TimeSpan.FromSeconds(maxWaitSeconds);
+        var delay = TimeSpan.FromSeconds(delaySeconds);
         var start = DateTime.Now;
 
-        while (DateTime.Now - start < TimeSpan.FromSeconds(maxWaitSeconds)) {
+        while (DateTime.Now - start < timeout) {
             try {
                 if (model.GetConnectionStatus()) {
                     var info = model.GetInfo();
@@ -98,61 +98,12 @@ public partial class MainWindow {
                 // ignored
             }
 
-            System.Threading.Thread.Sleep(delayMs);
+            System.Threading.Thread.Sleep(delay);
         }
 
         model = null;
         return false;
     }
-
-    #region nwm czm nie działa
-
-    // public MainWindow() {
-    //     TryInitModel(out var isModelConnected, out var isSharedModel);
-    //     
-    //     InitializeComponent();
-    //     
-    //     switch (isModelConnected) {
-    //         case true when isSharedModel:
-    //             AutoLoginCurrentUser();
-    //             MessageBox.Show("IsSharedModel");
-    //             break;
-    //         case true:
-    //             MessageBox.Show("IsModelConnected");
-    //             break;
-    //         default:
-    //             MessageBox.Show("Standalone");
-    //             break;
-    //     }
-    // }
-    
-    // private void TryInitModel(out bool isConnected, out bool isShared) {
-    //     isConnected = false;
-    //     isShared = false;
-    //
-    //     try {
-    //         var model = new TSM.Model();
-    //         ModelDrawingLabel.Content = model.GetInfo().ModelName.Replace(".db1", "");
-    //         if (!model.GetConnectionStatus()) return;
-    //
-    //         isConnected = true;
-    //
-    //         try {
-    //             var info = model.GetInfo();
-    //             if (!info.SharedModel) return;
-    //             
-    //             isShared = true;
-    //         }
-    //         catch {
-    //             isShared = false;
-    //         }
-    //     }
-    //     catch {
-    //         isConnected = false;
-    //     }
-    // }
-
-    #endregion
 
     #region Logging Helpers
     
@@ -450,37 +401,43 @@ public partial class MainWindow {
     #region Event Handlers
 
     private void BtnReadIn_Click() {
-        ClearLog();
+        try {
+            ClearLog();
 
-        if (!TryGetLicenseFromLog(out var licenseId, out _)) {
-            AppendLog("Nie znaleziono wpisu UserInfo w logu Tekli.");
-            return;
+            if (!TryGetLicenseFromLog(out var licenseId, out _)) return; 
+            if (!TryGetModelSharingLogPath(out var modelSharingLogPath)) return;
+            
+            var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
+            var userName = Environment.UserName;
+            var fromUtc = DateTime.UtcNow.AddMinutes(-5);
+
+            ReadIn();
+
+            _ = WaitAndFinalizeReadInAsync(modelSharingLogPath, info, userName, fromUtc);
         }
-
-        var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
-        var userName = Environment.UserName;
-        var now = DateTime.Now;
-        ReadIn();
-        SharedLicenseManager.ReadIn(info, userName, now);
-        SharedLicenseFileService.Save(LicenseFilePath, info);
-        AppendLog($"READ IN - {userName} - {now.ToString(DateFormat)}");
+        catch (Exception ex) {
+            MessageBox.Show($"READ IN: wyjątek: {ex.Message}");
+        }
     }
 
     private void BtnWriteOut_Click() {
-        ClearLog();
+        try {
+            ClearLog();
 
-        if (!TryGetLicenseFromLog(out var licenseId, out _)) {
-            AppendLog("Nie znaleziono wpisu UserInfo w logu Tekli.");
-            return;
+            if (!TryGetLicenseFromLog(out var licenseId, out _)) return;
+            if (!TryGetModelSharingLogPath(out var modelSharingLogPath)) return;
+            
+            var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
+            var userName = Environment.UserName;
+            var fromUtc = DateTime.UtcNow.AddMinutes(-5);
+
+            WriteOut();
+            
+            _ = WaitAndFinalizeWriteOutAsync(modelSharingLogPath, info, userName, fromUtc);
         }
-
-        var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
-        var userName = Environment.UserName;
-        var now = DateTime.Now;
-        WriteOut();
-        SharedLicenseManager.WriteOut(info, userName, now);
-        SharedLicenseFileService.Save(LicenseFilePath, info);
-        AppendLog($"WRITE OUT - {userName} - {now.ToString(DateFormat)}");
+        catch (Exception ex) {
+            MessageBox.Show($"WRITE OUT: wyjątek: {ex.Message}");
+        }
     }
 
     private void BtnCheck_Click() {
@@ -502,6 +459,185 @@ public partial class MainWindow {
     
     #endregion
 
+    #region Helpers
+    private static string SafeReadLogToTemp(string logPath) {
+        if (string.IsNullOrEmpty(logPath) || !File.Exists(logPath))
+            return null;
+
+        try {
+            var tempPath = Path.GetTempFileName();
+
+            using var src = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var dst = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
+            src.CopyTo(dst);
+
+            return tempPath;
+        }
+        catch {
+            return null;
+        }
+    }
+
+    private async Task WaitAndFinalizeReadInAsync(
+        string logPath,
+        SharedLicenseInfo info,
+        string userName,
+        DateTime fromUtc)
+    {
+        var ok = await WaitForModelSharingConfirmationAsync(
+            logPath,
+            "Read-in result: OK.",
+            fromUtc,
+            maxWaitSeconds: 300,
+            delaySeconds: 5).ConfigureAwait(false);
+
+        Application.Current.Dispatcher.Invoke(() => {
+            if (!ok) return;
+            
+            var now = DateTime.Now;
+            SharedLicenseManager.ReadIn(info, userName, now);
+            SharedLicenseFileService.Save(LicenseFilePath, info);
+            AppendLog($"READ IN - {userName} - {now.ToString(DateFormat)}");
+        });
+    }
+
+    private async Task WaitAndFinalizeWriteOutAsync(
+        string logPath,
+        SharedLicenseInfo info,
+        string userName,
+        DateTime fromUtc)
+    {
+        var ok = await WaitForModelSharingConfirmationAsync(
+            logPath,
+            "WriteOut OK",
+            fromUtc,
+            maxWaitSeconds: 300,
+            delaySeconds: 5).ConfigureAwait(false);
+
+        Application.Current.Dispatcher.Invoke(() => {
+            if (!ok) return;
+            
+            var now = DateTime.Now;
+            SharedLicenseManager.WriteOut(info, userName, now);
+            SharedLicenseFileService.Save(LicenseFilePath, info);
+            AppendLog($"WRITE OUT - {userName} - {now.ToString(DateFormat)}");
+        });
+    }
+    
+    private static async Task<bool> WaitForModelSharingConfirmationAsync(
+        string logPath,
+        string marker,
+        DateTime fromUtc,
+        int maxWaitSeconds = 300,
+        int delaySeconds = 5)
+    {
+        var timeout = TimeSpan.FromSeconds(maxWaitSeconds);
+        var delay = TimeSpan.FromSeconds(delaySeconds);
+        var start = DateTime.UtcNow;
+
+        if (fromUtc.Kind != DateTimeKind.Utc) fromUtc = fromUtc.ToUniversalTime();
+
+        while (DateTime.UtcNow - start < timeout) {
+
+            try {
+                var tempPath = SafeReadLogToTemp(logPath);
+                if (tempPath != null) {
+                    bool found;
+                    try {
+                        found = HasConfirmationLine(tempPath, marker, fromUtc);
+                    }
+                    finally {
+                        try {
+                            File.Delete(tempPath);
+                        }
+                        catch {
+                            // ignored
+                        }
+                    }
+
+                    if (found) return true;
+                }
+            }
+            catch {
+                // ignored
+            }
+
+            await Task.Delay(delay).ConfigureAwait(false);
+        }
+
+        return false;
+    }
+    
+    private static bool TryGetModelSharingLogPath(out string logPath) {
+        logPath = null;
+
+        try {
+            var model = new TSM.Model();
+            if (!model.GetConnectionStatus())
+                return false;
+
+            var info = model.GetInfo();
+            if (!info.SharedModel)
+                return false;
+
+            var basePath = info.ModelPath;
+            if (string.IsNullOrWhiteSpace(basePath))
+                return false;
+
+            basePath = basePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            logPath = Path.Combine(basePath, "logs", "modelsharing.log");
+            return true;
+        }
+        catch {
+            logPath = null;
+            return false;
+        }
+    }
+    private static bool HasConfirmationLine(string logPath, string marker, DateTime fromUtc) {
+        string[] lines;
+        try {
+            lines = File.ReadAllLines(logPath);
+        }
+        catch {
+            Application.Current?.Dispatcher.Invoke(() => {
+                MessageBox.Show("HasConfirmationLine: błąd odczytu pliku logu.");
+            });
+            return false;
+        }
+
+        if (fromUtc.Kind != DateTimeKind.Utc) fromUtc = fromUtc.ToUniversalTime();
+
+        for (var i = lines.Length - 1; i >= 0; i--) {
+            var line = lines[i];
+
+            if (line.IndexOf(marker, StringComparison.OrdinalIgnoreCase) < 0) continue;
+
+            var startBracket = line.IndexOf('[');
+            var endBracket = line.IndexOf(']', startBracket + 1);
+
+            if (startBracket < 0 || endBracket <= startBracket + 1) continue;
+            
+            var tsText = line.Substring(startBracket + 1, endBracket - startBracket - 1);
+
+            if (!DateTime.TryParse(
+                    tsText,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                    out var tsUtc))
+            {
+                continue;
+            }
+
+            var isNewEnough = tsUtc >= fromUtc;
+
+            if (isNewEnough) return true;
+        }
+
+        return false;
+    }
+
+    #endregion
+    
     #region Auto Login/Logout
 
     private async void StartAutoLoginWatcher() {
