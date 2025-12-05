@@ -11,7 +11,7 @@ using TSMO = Tekla.Structures.Model.Operations;
 namespace HFT_SharedTool;
 
 public partial class MainWindow {
-    private const string LicenseFilePath = @"Z:\000_PMJ\Tekla\HFT_sharing_lic.txt";
+    private const string LicenseFilePath = @"Z:\000_PMJ\Tekla\HFT_SharedTool\HFT_SharingTool_Licences.txt";
     private const string DateFormat = "yyyy-MM-dd HH:mm";
 
     private readonly string _mode;
@@ -54,18 +54,12 @@ public partial class MainWindow {
 
             case "readin":
                 HideWindow();
-                BtnReadIn_Click();
-                Close();
+                Loaded += (_, _) => BtnReadIn_Click();
                 break;
 
             case "writeout":
                 HideWindow();
-                BtnWriteOut_Click();
-                Close();
-                break;
-
-            case "check":
-                BtnCheck_Click();
+                Loaded += (_, _) => BtnWriteOut_Click();
                 break;
 
             default:
@@ -492,12 +486,17 @@ public partial class MainWindow {
             delaySeconds: 5).ConfigureAwait(false);
 
         Application.Current.Dispatcher.Invoke(() => {
-            if (!ok) return;
-            
+            if (!ok) {
+                if (_mode == "readin") Close();
+                return;
+            }
+
             var now = DateTime.Now;
             SharedLicenseManager.ReadIn(info, userName, now);
             SharedLicenseFileService.Save(LicenseFilePath, info);
             AppendLog($"READ IN - {userName} - {now.ToString(DateFormat)}");
+
+            if (_mode == "readin") Close();
         });
     }
 
@@ -515,15 +514,20 @@ public partial class MainWindow {
             delaySeconds: 5).ConfigureAwait(false);
 
         Application.Current.Dispatcher.Invoke(() => {
-            if (!ok) return;
-            
+            if (!ok) {
+                if (_mode == "writeout") Close();
+                return;
+            }
+
             var now = DateTime.Now;
             SharedLicenseManager.WriteOut(info, userName, now);
             SharedLicenseFileService.Save(LicenseFilePath, info);
             AppendLog($"WRITE OUT - {userName} - {now.ToString(DateFormat)}");
+
+            if (_mode == "writeout") Close();
         });
     }
-    
+
     private static async Task<bool> WaitForModelSharingConfirmationAsync(
         string logPath,
         string marker,
@@ -599,9 +603,6 @@ public partial class MainWindow {
             lines = File.ReadAllLines(logPath);
         }
         catch {
-            Application.Current?.Dispatcher.Invoke(() => {
-                MessageBox.Show("HasConfirmationLine: błąd odczytu pliku logu.");
-            });
             return false;
         }
 
@@ -716,19 +717,9 @@ public partial class MainWindow {
 
         var userName = Environment.UserName;
         var logPath = Path.Combine(@"C:\TeklaStructuresModels", "TeklaStructures_" + userName + ".log");
-        if (!File.Exists(logPath))
+        var tempPath = SafeReadLogToTemp(logPath);
+        if (tempPath == null)
             return false;
-
-        var tempPath = Path.GetTempFileName();
-
-        try {
-            using var fs = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            using var dest = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
-            fs.CopyTo(dest);
-        }
-        catch {
-            return false;
-        }
 
         string[] lines;
         try {
@@ -776,11 +767,11 @@ public partial class MainWindow {
     #region Scripts
     
     private static void ReadIn() {
-        TSMO.Operation.RunMacro(@"C:\TeklaStructures\2024.0\Environments\common\extensions\SharedTool\ReadIn.cs");
+        TSMO.Operation.RunMacro(@"Z:\000_PMJ\Tekla\HFT_SharedTool\SharedTool\ReadIn.cs");
     }
 
     private static void WriteOut() {
-        TSMO.Operation.RunMacro(@"C:\TeklaStructures\2024.0\Environments\common\extensions\SharedTool\WriteOut.cs");
+        TSMO.Operation.RunMacro(@"Z:\000_PMJ\Tekla\HFT_SharedTool\SharedTool\WriteOut.cs");
     }
 
     #endregion
