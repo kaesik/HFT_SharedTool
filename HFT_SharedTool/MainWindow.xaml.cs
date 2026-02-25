@@ -28,7 +28,7 @@ public partial class MainWindow {
 
         if (_mode == "standalone") {
             ModelDrawingLabel.Content = "Tryb odczytu pliku licencji";
-            Loaded += (_, _) => BtnCheck_Click();
+            Dispatcher.BeginInvoke(new Action(BtnCheck_Click));
             return;
         }
 
@@ -49,21 +49,21 @@ public partial class MainWindow {
         switch (_mode) {
             case "autologin":
                 HideWindow();
-                Loaded += (_, _) => StartAutoLoginWatcher();
+                Dispatcher.BeginInvoke(new Action(StartAutoLoginWatcher));
                 break;
 
             case "readin":
                 HideWindow();
-                Loaded += (_, _) => BtnReadIn_Click();
+                Dispatcher.BeginInvoke(new Action(BtnReadIn_Click));
                 break;
 
             case "writeout":
                 HideWindow();
-                Loaded += (_, _) => BtnWriteOut_Click();
+                Dispatcher.BeginInvoke(new Action(BtnWriteOut_Click));
                 break;
 
             default:
-                Loaded += (_, _) => BtnCheck_Click();
+                Dispatcher.BeginInvoke(new Action(BtnCheck_Click));
                 break;
         }
     }
