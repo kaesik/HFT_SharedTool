@@ -1,6 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HFT_SharedTool", "HFT_SharedTool\HFT_SharedTool.csproj", "{0FB717CE-89D8-493C-8BF5-B6BB975C5AAD}"
+# Visual Studio Version 17
+VisualStudioVersion = 17.13.35919.96 d17.13
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HFT_SharedTool", "HFT_SharedTool\HFT_SharedTool.csproj", "{CB4F338D-1F45-4D71-B469-4868127F5E38}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -8,9 +11,12 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{0FB717CE-89D8-493C-8BF5-B6BB975C5AAD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{0FB717CE-89D8-493C-8BF5-B6BB975C5AAD}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{0FB717CE-89D8-493C-8BF5-B6BB975C5AAD}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{0FB717CE-89D8-493C-8BF5-B6BB975C5AAD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CB4F338D-1F45-4D71-B469-4868127F5E38}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CB4F338D-1F45-4D71-B469-4868127F5E38}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CB4F338D-1F45-4D71-B469-4868127F5E38}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CB4F338D-1F45-4D71-B469-4868127F5E38}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
 	EndGlobalSection
 EndGlobal
