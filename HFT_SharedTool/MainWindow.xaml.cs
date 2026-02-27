@@ -738,40 +738,70 @@ public partial class MainWindow {
     private async Task WaitAndFinalizeReadInAsync(string logPath, SharedLicenseInfo info, string userName, DateTime fromUtc) {
         Dbg($"WaitAndFinalizeReadInAsync: ENTER logPath={logPath} marker=Read-in result: OK. fromUtc={fromUtc:O}");
 
-        bool ok;
-        try {
-            ok = await WaitForModelSharingConfirmationAsync(logPath, "Read-in result: OK.", fromUtc).ConfigureAwait(false);
-        }
-        catch (Exception ex) {
-            Dbg("WaitAndFinalizeReadInAsync: EXCEPTION while waiting", ex);
-            ok = false;
-        }
+        const int maxAttempts = 3;
+        const int attemptDelaySeconds = 10;
+        const int waitMaxSecondsPerAttempt = 30;
+        const int waitPollSeconds = 5;
 
-        Dbg($"WaitAndFinalizeReadInAsync: WAIT RESULT ok={ok}");
+        for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+            Dbg($"WaitAndFinalizeReadInAsync: ATTEMPT {attempt}/{maxAttempts}");
 
-        Application.Current.Dispatcher.Invoke(() => {
-            Dbg("WaitAndFinalizeReadInAsync: DISPATCHER INVOKE ENTER");
-            if (!ok) {
-                Dbg("WaitAndFinalizeReadInAsync: NOT OK -> exit/close if mode=readin");
-                if (_mode == "readin") Close();
+            try {
+                var attempt1 = attempt;
+                Application.Current.Dispatcher.Invoke(() => {
+                    AppendLog($"READ IN: próba {attempt1}/{maxAttempts}...");
+                    ReadIn();
+                });
+            }
+            catch (Exception ex) {
+                Dbg("WaitAndFinalizeReadInAsync: ReadIn invoke EX", ex);
+            }
+
+            var attemptFromUtc = DateTime.UtcNow.AddSeconds(-10);
+
+            bool ok;
+            try {
+                ok = await WaitForModelSharingConfirmationAsync(
+                    logPath,
+                    "Read-in result: OK.",
+                    attemptFromUtc,
+                    maxWaitSeconds: waitMaxSecondsPerAttempt,
+                    delaySeconds: waitPollSeconds
+                ).ConfigureAwait(false);
+            }
+            catch (Exception ex) {
+                Dbg("WaitAndFinalizeReadInAsync: EXCEPTION while waiting", ex);
+                ok = false;
+            }
+
+            Dbg($"WaitAndFinalizeReadInAsync: WAIT RESULT ok={ok} attempt={attempt}");
+
+            if (ok) {
+                Application.Current.Dispatcher.Invoke(() => {
+                    if (_mode == "readin" && !IsLoaded) return;
+
+                    var now = DateTime.Now;
+                    SharedLicenseManager.ReadIn(info, userName, now);
+
+                    SharedLicenseFileService.Save(LicenseFilePath, info);
+
+                    AppendLog($"READ IN - {userName} - {now.ToString(DateFormat)}");
+                    if (_mode == "readin") Close();
+                });
+
+                Dbg("WaitAndFinalizeReadInAsync: SUCCESS");
                 return;
             }
 
-            var now = DateTime.Now;
-            Dbg($"WaitAndFinalizeReadInAsync: finalize ReadIn user={userName} now={now:yyyy-MM-dd HH:mm:ss}");
-
-            SharedLicenseManager.ReadIn(info, userName, now);
-
-            try {
-                SharedLicenseFileService.Save(LicenseFilePath, info);
-                Dbg("WaitAndFinalizeReadInAsync: Save OK");
+            if (attempt < maxAttempts) {
+                await Task.Delay(TimeSpan.FromSeconds(attemptDelaySeconds)).ConfigureAwait(false);
             }
-            catch (Exception ex) {
-                Dbg("WaitAndFinalizeReadInAsync: Save EXCEPTION", ex);
-                throw;
-            }
+        }
 
-            AppendLog($"READ IN - {userName} - {now.ToString(DateFormat)}");
+        Dbg("WaitAndFinalizeReadInAsync: ALL ATTEMPTS FAILED");
+
+        Application.Current.Dispatcher.Invoke(() => {
+            AppendLog($"READ IN: nie udało się po {maxAttempts} próbach.");
             if (_mode == "readin") Close();
         });
     }
@@ -779,40 +809,70 @@ public partial class MainWindow {
     private async Task WaitAndFinalizeWriteOutAsync(string logPath, SharedLicenseInfo info, string userName, DateTime fromUtc) {
         Dbg($"WaitAndFinalizeWriteOutAsync: ENTER logPath={logPath} marker=WriteOut OK fromUtc={fromUtc:O}");
 
-        bool ok;
-        try {
-            ok = await WaitForModelSharingConfirmationAsync(logPath, "WriteOut OK", fromUtc).ConfigureAwait(false);
-        }
-        catch (Exception ex) {
-            Dbg("WaitAndFinalizeWriteOutAsync: EXCEPTION while waiting", ex);
-            ok = false;
-        }
+        const int maxAttempts = 3;
+        const int attemptDelaySeconds = 10;
+        const int waitMaxSecondsPerAttempt = 30;
+        const int waitPollSeconds = 5;
 
-        Dbg($"WaitAndFinalizeWriteOutAsync: WAIT RESULT ok={ok}");
+        for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+            Dbg($"WaitAndFinalizeWriteOutAsync: ATTEMPT {attempt}/{maxAttempts}");
 
-        Application.Current.Dispatcher.Invoke(() => {
-            Dbg("WaitAndFinalizeWriteOutAsync: DISPATCHER INVOKE ENTER");
-            if (!ok) {
-                Dbg("WaitAndFinalizeWriteOutAsync: NOT OK -> exit/close if mode=writeout");
-                if (_mode == "writeout") Close();
+            try {
+                var attempt1 = attempt;
+                Application.Current.Dispatcher.Invoke(() => {
+                    AppendLog($"WRITE OUT: próba {attempt1}/{maxAttempts}...");
+                    WriteOut();
+                });
+            }
+            catch (Exception ex) {
+                Dbg("WaitAndFinalizeWriteOutAsync: WriteOut invoke EX", ex);
+            }
+
+            var attemptFromUtc = DateTime.UtcNow.AddSeconds(-10);
+
+            bool ok;
+            try {
+                ok = await WaitForModelSharingConfirmationAsync(
+                    logPath,
+                    "WriteOut OK",
+                    attemptFromUtc,
+                    maxWaitSeconds: waitMaxSecondsPerAttempt,
+                    delaySeconds: waitPollSeconds
+                ).ConfigureAwait(false);
+            }
+            catch (Exception ex) {
+                Dbg("WaitAndFinalizeWriteOutAsync: EXCEPTION while waiting", ex);
+                ok = false;
+            }
+
+            Dbg($"WaitAndFinalizeWriteOutAsync: WAIT RESULT ok={ok} attempt={attempt}");
+
+            if (ok) {
+                Application.Current.Dispatcher.Invoke(() => {
+                    if (_mode == "writeout" && !IsLoaded) return;
+
+                    var now = DateTime.Now;
+                    SharedLicenseManager.WriteOut(info, userName, now);
+
+                    SharedLicenseFileService.Save(LicenseFilePath, info);
+
+                    AppendLog($"WRITE OUT - {userName} - {now.ToString(DateFormat)}");
+                    if (_mode == "writeout") Close();
+                });
+
+                Dbg("WaitAndFinalizeWriteOutAsync: SUCCESS");
                 return;
             }
 
-            var now = DateTime.Now;
-            Dbg($"WaitAndFinalizeWriteOutAsync: finalize WriteOut user={userName} now={now:yyyy-MM-dd HH:mm:ss}");
-
-            SharedLicenseManager.WriteOut(info, userName, now);
-
-            try {
-                SharedLicenseFileService.Save(LicenseFilePath, info);
-                Dbg("WaitAndFinalizeWriteOutAsync: Save OK");
+            if (attempt < maxAttempts) {
+                await Task.Delay(TimeSpan.FromSeconds(attemptDelaySeconds)).ConfigureAwait(false);
             }
-            catch (Exception ex) {
-                Dbg("WaitAndFinalizeWriteOutAsync: Save EXCEPTION", ex);
-                throw;
-            }
+        }
 
-            AppendLog($"WRITE OUT - {userName} - {now.ToString(DateFormat)}");
+        Dbg("WaitAndFinalizeWriteOutAsync: ALL ATTEMPTS FAILED");
+
+        Application.Current.Dispatcher.Invoke(() => {
+            AppendLog($"WRITE OUT: nie udało się po {maxAttempts} próbach.");
             if (_mode == "writeout") Close();
         });
     }
