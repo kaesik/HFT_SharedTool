@@ -1,11 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text;
+using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Documents;
 using System.Windows.Media;
 using TSM = Tekla.Structures.Model;
 using TSMO = Tekla.Structures.Model.Operations;
@@ -16,13 +19,21 @@ public partial class MainWindow {
     private const string LicenseFilePath = @"Z:\000_PMJ\Tekla\HFT_SharedTool\HFT_SharingTool_Licences.txt";
     private const string DateFormat = "yyyy-MM-dd HH:mm";
 
-    private readonly string _mode;
-    private int _autoLoginWatcherStarted;
-    private bool _autoLoginDone;
-    private bool _logoutDone;
-    private TSM.Events _events;
+    private static readonly string SelectedLicenseFilePath =
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "HFT_SharedTool",
+            $"selected_license_{Environment.UserName}.txt");
 
-    public MainWindow() : this("standalone") { }
+    private readonly string _mode;
+    private bool _autoLoginDone;
+    private int _autoLoginWatcherStarted;
+    private TSM.Events _events;
+    private bool _logoutDone;
+    private string _selectedLicenseId;
+
+    public MainWindow() : this("standalone") {
+    }
 
     public MainWindow(string mode) {
         DumpTeklaDiagnostics();
@@ -45,14 +56,18 @@ public partial class MainWindow {
 
         InitializeComponent();
 
-        if (_mode is "standalone" or "check" or "ckeck") {
-            ModelDrawingLabel.Content = "Tryb odczytu pliku licencji";
-            Dispatcher.BeginInvoke(new Action(BtnCheck_Click));
-            return;
+        switch (_mode) {
+            case "autologin" or "readin" or "writeout" when !EnsureSelectedLicenseId():
+                Close();
+                return;
+            case "standalone" or "check" or "ckeck":
+                ModelDrawingLabel.Text = "Tryb odczytu pliku licencji";
+                Dispatcher.BeginInvoke(new Action(BtnCheck_Click));
+                return;
         }
 
         if (!TryWaitForSharedModel(out var model)) {
-            ModelDrawingLabel.Content = "Brak połączenia z modelem współdzielonym";
+            ModelDrawingLabel.Text = "Brak połączenia z modelem współdzielonym";
             Close();
             return;
         }
@@ -63,7 +78,7 @@ public partial class MainWindow {
         _events.Register();
 
         var modelName = model.GetInfo().ModelName.Replace(".db1", "");
-        ModelDrawingLabel.Content = $"Połączono z {modelName}";
+        ModelDrawingLabel.Text = $"Połączono z {modelName}";
 
         switch (_mode) {
             case "autologin":
@@ -92,7 +107,7 @@ public partial class MainWindow {
         ShowInTaskbar = false;
         Visibility = Visibility.Hidden;
     }
-    
+
     private static bool TryWaitForSharedModel(out TSM.Model model, int maxWaitSeconds = 300, int delaySeconds = 5) {
         Dbg($"TryWaitForSharedModel: ENTER maxWaitSeconds={maxWaitSeconds} delaySeconds={delaySeconds}");
 
@@ -120,10 +135,9 @@ public partial class MainWindow {
                     connected = false;
                 }
 
-                if (!connected) {
+                if (!connected)
                     Dbg($"TryWaitForSharedModel: attempt={attempt} connected=FALSE (will retry)");
-                }
-                else {
+                else
                     try {
                         var info = m.GetInfo();
                         Dbg($"TryWaitForSharedModel: attempt={attempt} connected=TRUE sharedModel={info.SharedModel}");
@@ -137,7 +151,6 @@ public partial class MainWindow {
                     catch (Exception ex) {
                         Dbg($"TryWaitForSharedModel: attempt={attempt} GetInfo EX", ex);
                     }
-                }
             }
             catch (Exception ex) {
                 Dbg($"TryWaitForSharedModel: attempt={attempt} new Model EX", ex);
@@ -147,7 +160,7 @@ public partial class MainWindow {
                 }
             }
 
-            System.Threading.Thread.Sleep(delay);
+            Thread.Sleep(delay);
         }
 
         Dbg("TryWaitForSharedModel: TIMEOUT -> false");
@@ -155,122 +168,7 @@ public partial class MainWindow {
         return false;
     }
 
-    #region Logging Helpers
-    
-    private void ClearLog() {
-        try {
-            if (Application.Current?.Dispatcher == null || Application.Current.Dispatcher.CheckAccess()) {
-                LogTextBox?.Document.Blocks.Clear();
-                return;
-            }
-
-            Application.Current.Dispatcher.BeginInvoke(new Action(() => {
-                LogTextBox?.Document.Blocks.Clear();
-            }));
-        }
-        catch {
-            // ignored
-        }
-    }
-
-    private void AppendLog(string text) {
-        try {
-            if (Application.Current?.Dispatcher == null || Application.Current.Dispatcher.CheckAccess()) {
-                if (LogTextBox != null) {
-                    LogTextBox.AppendText(text + Environment.NewLine);
-                    LogTextBox.ScrollToEnd();
-                }
-                return;
-            }
-
-            Application.Current.Dispatcher.BeginInvoke(new Action(() => {
-                if (LogTextBox != null) {
-                    LogTextBox.AppendText(text + Environment.NewLine);
-                    LogTextBox.ScrollToEnd();
-                }
-            }));
-        }
-        catch {
-            // ignored
-        }
-    }
-
-    private void AppendColoredStatus(string text, bool isUsable) {
-        try {
-            if (Application.Current?.Dispatcher != null && !Application.Current.Dispatcher.CheckAccess()) {
-                Application.Current.Dispatcher.BeginInvoke(new Action(() => AppendColoredStatus(text, isUsable)));
-                return;
-            }
-
-            if (LogTextBox == null) {
-                AppendLog(text + (isUsable ? " [USABLE]" : " [NOT USABLE]"));
-                return;
-            }
-
-            var paragraph = new System.Windows.Documents.Paragraph(
-                new System.Windows.Documents.Run(text)) {
-                Foreground = isUsable ? Brushes.Green : Brushes.Red
-            };
-
-            LogTextBox.Document.Blocks.Add(paragraph);
-            LogTextBox.ScrollToEnd();
-        }
-        catch {
-            // ignored
-        }
-    }
-
-    #endregion
-    
-    #region TMP Debug Logger
-
-    private static readonly object DbgLock = new();
-    private static string _dbgFilePath;
-
-    private static string GetDbgFilePath() {
-        if (!string.IsNullOrEmpty(_dbgFilePath))
-            return _dbgFilePath;
-
-        var dir = Path.Combine(Path.GetTempPath(), "HFT_SharedTool");
-        if (!Directory.Exists(dir))
-            Directory.CreateDirectory(dir);
-
-        _dbgFilePath = Path.Combine(dir, $"debug_{DateTime.Now:yyyyMMdd_HHmmss}_{Environment.UserName}.txt");
-        return _dbgFilePath;
-    }
-
-    private static void Dbg(string msg, Exception ex = null) {
-        try {
-            var path = GetDbgFilePath();
-            var line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [T{Environment.CurrentManagedThreadId}] {msg}";
-            lock (DbgLock) {
-                File.AppendAllText(path, line + Environment.NewLine);
-
-                if (ex == null) return;
-
-                File.AppendAllText(path, @"EX: " + ex.GetType().FullName + Environment.NewLine);
-                File.AppendAllText(path, @"MSG: " + ex.Message + Environment.NewLine);
-                File.AppendAllText(path, @"STACK: " + ex.StackTrace + Environment.NewLine);
-
-                if (ex.InnerException != null) {
-                    File.AppendAllText(path, @"INNER EX: " + ex.InnerException.GetType().FullName + Environment.NewLine);
-                    File.AppendAllText(path, @"INNER MSG: " + ex.InnerException.Message + Environment.NewLine);
-                    File.AppendAllText(path, @"INNER STACK: " + ex.InnerException.StackTrace + Environment.NewLine);
-                }
-            }
-        }
-        catch {
-            // ignored
-        }
-    }
-
-    #endregion
     private class SharedLicenseInfo {
-        public class LoginEntry {
-            public string User { get; set; }
-            public DateTime Time { get; set; }
-        }
-
         public string LicenseId { get; set; }
         public List<LoginEntry> Logins { get; } = [];
         public string ReadUser { get; set; }
@@ -283,12 +181,11 @@ public partial class MainWindow {
             if (string.IsNullOrEmpty(user))
                 return;
 
-            foreach (var t in Logins) {
+            foreach (var t in Logins)
                 if (string.Equals(t.User, user, StringComparison.OrdinalIgnoreCase)) {
                     t.Time = time;
                     return;
                 }
-            }
 
             Logins.Add(new LoginEntry {
                 User = user,
@@ -301,6 +198,11 @@ public partial class MainWindow {
                 return;
 
             Logins.RemoveAll(l => string.Equals(l.User, user, StringComparison.OrdinalIgnoreCase));
+        }
+
+        public class LoginEntry {
+            public string User { get; set; }
+            public DateTime Time { get; set; }
         }
     }
 
@@ -334,21 +236,36 @@ public partial class MainWindow {
                 switch (parts.Length) {
                     case 3: {
                         var action = parts[0].Trim();
-                        var user = parts[1].Trim();
+                        var userText = parts[1].Trim();
                         var dateText = parts[2].Trim();
-                        if (!DateTime.TryParseExact(dateText, DateFormat, CultureInfo.InvariantCulture,
-                                DateTimeStyles.None, out var dt))
+
+                        if (!DateTime.TryParseExact(
+                                dateText,
+                                DateFormat,
+                                CultureInfo.InvariantCulture,
+                                DateTimeStyles.None,
+                                out var dt))
                             break;
 
                         if (string.Equals(action, "LOG IN", StringComparison.OrdinalIgnoreCase)) {
-                            current.AddOrUpdateLogin(user, dt);
+                            current.Logins.Clear();
+
+                            if (!string.IsNullOrWhiteSpace(userText) && userText != "-") {
+                                var users = userText
+                                    .Split([','], StringSplitOptions.RemoveEmptyEntries)
+                                    .Select(user => user.Trim())
+                                    .Where(user => !string.IsNullOrWhiteSpace(user))
+                                    .Distinct(StringComparer.OrdinalIgnoreCase);
+
+                                foreach (var user in users) current.AddOrUpdateLogin(user, dt);
+                            }
                         }
                         else if (string.Equals(action, "READ IN", StringComparison.OrdinalIgnoreCase)) {
-                            current.ReadUser = user;
+                            current.ReadUser = userText == "-" ? null : userText;
                             current.ReadTime = dt;
                         }
                         else if (string.Equals(action, "WRITE OUT", StringComparison.OrdinalIgnoreCase)) {
-                            current.WriteUser = user;
+                            current.WriteUser = userText == "-" ? null : userText;
                             current.WriteTime = dt;
                         }
 
@@ -357,13 +274,23 @@ public partial class MainWindow {
                     case 2: {
                         var action = parts[0].Trim();
                         var dateText = parts[1].Trim();
-                        if (!DateTime.TryParseExact(dateText, DateFormat, CultureInfo.InvariantCulture,
-                                DateTimeStyles.None, out var dt))
+
+                        if (dateText == "-") {
+                            if (string.Equals(action, "NEXT USABLE", StringComparison.OrdinalIgnoreCase))
+                                current.NextUsable = null;
+                            break;
+                        }
+
+                        if (!DateTime.TryParseExact(
+                                dateText,
+                                DateFormat,
+                                CultureInfo.InvariantCulture,
+                                DateTimeStyles.None,
+                                out var dt))
                             break;
 
-                        if (string.Equals(action, "NEXT USABLE", StringComparison.OrdinalIgnoreCase)) {
+                        if (string.Equals(action, "NEXT USABLE", StringComparison.OrdinalIgnoreCase))
                             current.NextUsable = dt;
-                        }
 
                         break;
                     }
@@ -375,10 +302,9 @@ public partial class MainWindow {
 
         public static SharedLicenseInfo LoadOrCreate(string filePath, string licenseId) {
             var infos = LoadAll(filePath);
-            foreach (var info in infos) {
+            foreach (var info in infos)
                 if (string.Equals(info.LicenseId, licenseId, StringComparison.OrdinalIgnoreCase))
                     return info;
-            }
 
             return new SharedLicenseInfo {
                 LicenseId = licenseId
@@ -389,13 +315,12 @@ public partial class MainWindow {
             var infos = LoadAll(filePath);
             var updated = false;
 
-            for (var i = 0; i < infos.Count; i++) {
+            for (var i = 0; i < infos.Count; i++)
                 if (string.Equals(infos[i].LicenseId, info.LicenseId, StringComparison.OrdinalIgnoreCase)) {
                     infos[i] = info;
                     updated = true;
                     break;
                 }
-            }
 
             if (!updated)
                 infos.Add(info);
@@ -407,7 +332,7 @@ public partial class MainWindow {
             const int maxAttempts = 10;
             var delayMs = 150;
 
-            for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+            for (var attempt = 1; attempt <= maxAttempts; attempt++)
                 try {
                     using var writer = new StreamWriter(filePath, false);
 
@@ -452,11 +377,11 @@ public partial class MainWindow {
                     return; // SUCCESS
                 }
                 catch (IOException ex) {
-                    Dbg($"SharedLicenseFileService.Save: IO EX attempt={attempt}/{maxAttempts} filePath={filePath}", ex);
-                    System.Threading.Thread.Sleep(delayMs);
+                    Dbg($"SharedLicenseFileService.Save: IO EX attempt={attempt}/{maxAttempts} filePath={filePath}",
+                        ex);
+                    Thread.Sleep(delayMs);
                     delayMs = Math.Min(delayMs * 2, 2000);
                 }
-            }
 
             throw new IOException($"Nie udało się zapisać pliku po {maxAttempts} próbach: {filePath}");
         }
@@ -489,8 +414,7 @@ public partial class MainWindow {
             SharedLicenseInfo info,
             DateTime now,
             string currentUser,
-            out bool isUsableForCurrentUser)
-        {
+            out bool isUsableForCurrentUser) {
             string activity;
             string activityUserDisplay;
             DateTime activityTime;
@@ -524,15 +448,15 @@ public partial class MainWindow {
                     names[i] = info.Logins[i].User;
                 user = string.Join(", ", names);
             }
-            else {
+            else
                 user = "WOLNE";
-            }
 
             var isAfterHold = !info.NextUsable.HasValue || now >= info.NextUsable.Value;
 
             var isCurrentHolder = !string.IsNullOrEmpty(latestActivityUserName) &&
                                   !string.IsNullOrEmpty(currentUser) &&
-                                  string.Equals(latestActivityUserName, currentUser, StringComparison.OrdinalIgnoreCase);
+                                  string.Equals(latestActivityUserName, currentUser,
+                                      StringComparison.OrdinalIgnoreCase);
 
             isUsableForCurrentUser = isAfterHold || isCurrentHolder;
 
@@ -545,16 +469,132 @@ public partial class MainWindow {
         }
     }
 
+    #region Logging Helpers
+
+    private void ClearLog() {
+        try {
+            if (Application.Current?.Dispatcher == null || Application.Current.Dispatcher.CheckAccess()) {
+                LogTextBox?.Document.Blocks.Clear();
+                return;
+            }
+
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => { LogTextBox?.Document.Blocks.Clear(); }));
+        }
+        catch {
+            // ignored
+        }
+    }
+
+    private void AppendLog(string text) {
+        try {
+            if (Application.Current?.Dispatcher == null || Application.Current.Dispatcher.CheckAccess()) {
+                if (LogTextBox != null) {
+                    LogTextBox.AppendText(text + Environment.NewLine);
+                    LogTextBox.ScrollToEnd();
+                }
+
+                return;
+            }
+
+            Application.Current.Dispatcher.BeginInvoke(new Action(() => {
+                if (LogTextBox != null) {
+                    LogTextBox.AppendText(text + Environment.NewLine);
+                    LogTextBox.ScrollToEnd();
+                }
+            }));
+        }
+        catch {
+            // ignored
+        }
+    }
+
+    private void AppendColoredStatus(string text, bool isUsable) {
+        try {
+            if (Application.Current?.Dispatcher != null && !Application.Current.Dispatcher.CheckAccess()) {
+                Application.Current.Dispatcher.BeginInvoke(new Action(() => AppendColoredStatus(text, isUsable)));
+                return;
+            }
+
+            if (LogTextBox == null) {
+                AppendLog(text + (isUsable ? " [USABLE]" : " [NOT USABLE]"));
+                return;
+            }
+
+            var paragraph = new Paragraph(
+                new Run(text)) {
+                Foreground = isUsable ? Brushes.Green : Brushes.Red
+            };
+
+            LogTextBox.Document.Blocks.Add(paragraph);
+            LogTextBox.ScrollToEnd();
+        }
+        catch {
+            // ignored
+        }
+    }
+
+    #endregion
+
+    #region TMP Debug Logger
+
+    private static readonly object DbgLock = new();
+    private static string _dbgFilePath;
+
+    private static string GetDbgFilePath() {
+        if (!string.IsNullOrEmpty(_dbgFilePath))
+            return _dbgFilePath;
+
+        var dir = Path.Combine(Path.GetTempPath(), "HFT_SharedTool");
+        if (!Directory.Exists(dir))
+            Directory.CreateDirectory(dir);
+
+        _dbgFilePath = Path.Combine(dir, $"debug_{DateTime.Now:yyyyMMdd_HHmmss}_{Environment.UserName}.txt");
+        return _dbgFilePath;
+    }
+
+    private static void Dbg(string msg, Exception ex = null) {
+        try {
+            var path = GetDbgFilePath();
+            var line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [T{Environment.CurrentManagedThreadId}] {msg}";
+            lock (DbgLock) {
+                File.AppendAllText(path, line + Environment.NewLine);
+
+                if (ex == null) return;
+
+                File.AppendAllText(path, @"EX: " + ex.GetType().FullName + Environment.NewLine);
+                File.AppendAllText(path, @"MSG: " + ex.Message + Environment.NewLine);
+                File.AppendAllText(path, @"STACK: " + ex.StackTrace + Environment.NewLine);
+
+                if (ex.InnerException != null) {
+                    File.AppendAllText(path,
+                        @"INNER EX: " + ex.InnerException.GetType().FullName + Environment.NewLine);
+                    File.AppendAllText(path, @"INNER MSG: " + ex.InnerException.Message + Environment.NewLine);
+                    File.AppendAllText(path, @"INNER STACK: " + ex.InnerException.StackTrace + Environment.NewLine);
+                }
+            }
+        }
+        catch {
+            // ignored
+        }
+    }
+
+    #endregion
+
     #region Event Handlers
 
     private void BtnReadIn_Click() {
         try {
             ClearLog();
 
-            if (!TryGetLicenseFromLog(out var licenseId, out _)) return; 
-            if (!TryGetModelSharingLogPath(out var modelSharingLogPath)) return;
-            
-            var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
+            if (!EnsureSelectedLicenseId())
+                return;
+
+            SaveSelectedLicenseId(_selectedLicenseId);
+
+            if (!TryGetModelSharingLogPath(out var modelSharingLogPath))
+                return;
+
+            var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, _selectedLicenseId);
             var userName = Environment.UserName;
             var fromUtc = DateTime.UtcNow.AddMinutes(-5);
 
@@ -571,15 +611,20 @@ public partial class MainWindow {
         try {
             ClearLog();
 
-            if (!TryGetLicenseFromLog(out var licenseId, out _)) return;
-            if (!TryGetModelSharingLogPath(out var modelSharingLogPath)) return;
-            
-            var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
+            if (!EnsureSelectedLicenseId())
+                return;
+
+            SaveSelectedLicenseId(_selectedLicenseId);
+
+            if (!TryGetModelSharingLogPath(out var modelSharingLogPath))
+                return;
+
+            var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, _selectedLicenseId);
             var userName = Environment.UserName;
             var fromUtc = DateTime.UtcNow.AddMinutes(-5);
 
             WriteOut();
-            
+
             _ = WaitAndFinalizeWriteOutAsync(modelSharingLogPath, info, userName, fromUtc);
         }
         catch (Exception ex) {
@@ -599,21 +644,111 @@ public partial class MainWindow {
         var currentUser = Environment.UserName;
 
         foreach (var info in infos) {
-            var line = SharedLicenseManager.FormatStatus(info, DateTime.Now, currentUser, out var isUsableForCurrentUser);
+            var line = SharedLicenseManager.FormatStatus(info, DateTime.Now, currentUser,
+                out var isUsableForCurrentUser);
             AppendColoredStatus(line, isUsableForCurrentUser);
         }
     }
-    
+
     #endregion
 
     #region Helpers
-    
+
+    private static void DeleteSelectedLicenseId() {
+        try {
+            if (!File.Exists(SelectedLicenseFilePath)) {
+                Dbg("DeleteSelectedLicenseId: file does not exist");
+                return;
+            }
+
+            File.Delete(SelectedLicenseFilePath);
+            Dbg("DeleteSelectedLicenseId: deleted");
+        }
+        catch (Exception ex) {
+            Dbg("DeleteSelectedLicenseId: EXCEPTION", ex);
+        }
+    }
+
+    private static void SaveSelectedLicenseId(string licenseId) {
+        try {
+            if (string.IsNullOrWhiteSpace(licenseId))
+                return;
+
+            var dir = Path.GetDirectoryName(SelectedLicenseFilePath);
+            if (!string.IsNullOrWhiteSpace(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            File.WriteAllText(SelectedLicenseFilePath, licenseId.Trim());
+            Dbg($"SaveSelectedLicenseId: saved={licenseId}");
+        }
+        catch (Exception ex) {
+            Dbg("SaveSelectedLicenseId: EXCEPTION", ex);
+        }
+    }
+
+    private static string LoadSelectedLicenseId() {
+        try {
+            if (!File.Exists(SelectedLicenseFilePath)) {
+                Dbg("LoadSelectedLicenseId: file does not exist");
+                return null;
+            }
+
+            var value = File.ReadAllText(SelectedLicenseFilePath).Trim();
+
+            if (string.IsNullOrWhiteSpace(value)) {
+                Dbg("LoadSelectedLicenseId: value is empty");
+                return null;
+            }
+
+            Dbg($"LoadSelectedLicenseId: loaded={value}");
+            return value;
+        }
+        catch (Exception ex) {
+            Dbg("LoadSelectedLicenseId: EXCEPTION", ex);
+            return null;
+        }
+    }
+
+    private static List<string> FindLicenseIdsByCurrentUserInLicenseFile() {
+        try {
+            var currentUser = Environment.UserName;
+
+            if (string.IsNullOrWhiteSpace(currentUser)) {
+                Dbg("FindLicenseIdsByCurrentUserInLicenseFile: current user is empty");
+                return [];
+            }
+
+            var infos = SharedLicenseFileService.LoadAll(LicenseFilePath);
+            var result = new List<string>();
+
+            foreach (var info in infos) {
+                if (info?.Logins == null || string.IsNullOrWhiteSpace(info.LicenseId))
+                    continue;
+
+                var hasUser = info.Logins.Any(login =>
+                    login != null &&
+                    !string.IsNullOrWhiteSpace(login.User) &&
+                    string.Equals(login.User, currentUser, StringComparison.OrdinalIgnoreCase));
+
+                if (hasUser) result.Add(info.LicenseId);
+            }
+
+            Dbg($"FindLicenseIdsByCurrentUserInLicenseFile: found {result.Count} license(s) for user={currentUser}");
+            return result;
+        }
+        catch (Exception ex) {
+            Dbg("FindLicenseIdsByCurrentUserInLicenseFile: EXCEPTION", ex);
+            return [];
+        }
+    }
+
     private static void DumpTeklaDiagnostics() {
         try {
             Dbg("DumpTeklaDiagnostics: ENTER");
 
             // 1) bitness naszego EXE
-            Dbg($"DumpTeklaDiagnostics: Tool Is64BitProcess={Environment.Is64BitProcess} Is64BitOS={Environment.Is64BitOperatingSystem}");
+            Dbg(
+                $"DumpTeklaDiagnostics: Tool Is64BitProcess={Environment.Is64BitProcess} Is64BitOS={Environment.Is64BitOperatingSystem}");
 
             // 2) środowisko
             var xsDataDir = Environment.GetEnvironmentVariable("XSDATADIR") ?? "(null)";
@@ -623,7 +758,7 @@ public partial class MainWindow {
 
             // 3) skąd ładuje się Tekla.Structures.Model.dll (MEGA ważne)
             try {
-                var asm = typeof(Tekla.Structures.Model.Model).Assembly;
+                var asm = typeof(TSM.Model).Assembly;
                 Dbg($"DumpTeklaDiagnostics: Tekla.Structures.Model.dll Location={asm.Location}");
                 Dbg($"DumpTeklaDiagnostics: Tekla.Structures.Model.dll Version={asm.GetName().Version}");
             }
@@ -633,23 +768,26 @@ public partial class MainWindow {
 
             // 4) czy Tekla proces w ogóle istnieje + jego bitness
             try {
-                var teklaProcs = System.Diagnostics.Process.GetProcesses()
+                var teklaProcs = Process.GetProcesses()
                     .Where(p => {
-                        try { return p.ProcessName.IndexOf("TeklaStructures", StringComparison.OrdinalIgnoreCase) >= 0; }
-                        catch { return false; }
+                        try {
+                            return p.ProcessName.IndexOf("TeklaStructures", StringComparison.OrdinalIgnoreCase) >= 0;
+                        }
+                        catch {
+                            return false;
+                        }
                     })
                     .ToList();
 
                 Dbg($"DumpTeklaDiagnostics: TeklaStructures process count={teklaProcs.Count}");
 
-                foreach (var p in teklaProcs) {
+                foreach (var p in teklaProcs)
                     try {
                         Dbg($"DumpTeklaDiagnostics: Tekla PID={p.Id} Name={p.ProcessName} SessionId={p.SessionId}");
 
                         // bitness procesu Tekli
-                        bool isWow64;
                         if (Environment.Is64BitOperatingSystem) {
-                            isWow64 = IsWow64Process(p.Handle);
+                            var isWow64 = IsWow64Process(p.Handle);
                             // jeśli WOW64=true -> proces 32-bit na 64-bit OS
                             var teklaIs64 = !isWow64;
                             Dbg($"DumpTeklaDiagnostics: Tekla PID={p.Id} Is64Bit={teklaIs64} (IsWow64={isWow64})");
@@ -658,7 +796,6 @@ public partial class MainWindow {
                     catch (Exception ex) {
                         Dbg("DumpTeklaDiagnostics: reading Tekla process info EX", ex);
                     }
-                }
             }
             catch (Exception ex) {
                 Dbg("DumpTeklaDiagnostics: process scan EX", ex);
@@ -672,7 +809,7 @@ public partial class MainWindow {
     }
 
     // P/Invoke do WOW64
-    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool IsWow64Process(IntPtr hProcess, out bool wow64Process);
 
     private static bool IsWow64Process(IntPtr hProcess) {
@@ -684,36 +821,7 @@ public partial class MainWindow {
             return false;
         }
     }
-    
-    private static string NormalizeUserName(string input) {
-        if (string.IsNullOrEmpty(input))
-            return input;
 
-        var normalized = input.Normalize(NormalizationForm.FormD);
-        var sb = new StringBuilder(normalized.Length);
-
-        foreach (var c in normalized) {
-            var uc = CharUnicodeInfo.GetUnicodeCategory(c);
-            if (uc != UnicodeCategory.NonSpacingMark)
-                sb.Append(c);
-        }
-
-        var s = sb.ToString().Normalize(NormalizationForm.FormC);
-
-        s = s
-            .Replace('ą', 'a').Replace('Ą', 'A')
-            .Replace('ć', 'c').Replace('Ć', 'C')
-            .Replace('ę', 'e').Replace('Ę', 'E')
-            .Replace('ł', 'l').Replace('Ł', 'L')
-            .Replace('ń', 'n').Replace('Ń', 'N')
-            .Replace('ó', 'o').Replace('Ó', 'O')
-            .Replace('ś', 's').Replace('Ś', 'S')
-            .Replace('ż', 'z').Replace('Ż', 'Z')
-            .Replace('ź', 'z').Replace('Ź', 'Z');
-
-        return s;
-    }
-    
     private static string SafeReadLogToTemp(string logPath) {
         Dbg($"SafeReadLogToTemp: logPath={logPath}");
         if (string.IsNullOrEmpty(logPath) || !File.Exists(logPath)) {
@@ -735,13 +843,54 @@ public partial class MainWindow {
         }
     }
 
-    private async Task WaitAndFinalizeReadInAsync(string logPath, SharedLicenseInfo info, string userName, DateTime fromUtc) {
+    private bool ResolveSelectedLicenseIdForAction() {
+        if (!string.IsNullOrWhiteSpace(_selectedLicenseId)) {
+            Dbg($"ResolveSelectedLicenseIdForAction: already in memory={_selectedLicenseId}");
+            return true;
+        }
+
+        var licenseIdsFromFile = FindLicenseIdsByCurrentUserInLicenseFile();
+        var savedLicenseId = LoadSelectedLicenseId();
+
+        if (licenseIdsFromFile.Count == 1) {
+            _selectedLicenseId = licenseIdsFromFile[0];
+            SaveSelectedLicenseId(_selectedLicenseId);
+            Dbg($"ResolveSelectedLicenseIdForAction: resolved from file={_selectedLicenseId}");
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(savedLicenseId) &&
+            licenseIdsFromFile.Contains(savedLicenseId, StringComparer.OrdinalIgnoreCase)) {
+            _selectedLicenseId = savedLicenseId;
+            Dbg($"ResolveSelectedLicenseIdForAction: resolved from saved among many={_selectedLicenseId}");
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(savedLicenseId) && licenseIdsFromFile.Count == 0) {
+            _selectedLicenseId = savedLicenseId;
+            Dbg($"ResolveSelectedLicenseIdForAction: resolved from saved file={_selectedLicenseId}");
+            return true;
+        }
+
+        var window = new LicenseAccountSelectionWindow(_selectedLicenseId);
+        var result = window.ShowDialog();
+
+        if (result != true || string.IsNullOrWhiteSpace(window.SelectedLicenseId))
+            return false;
+
+        _selectedLicenseId = window.SelectedLicenseId;
+        SaveSelectedLicenseId(_selectedLicenseId);
+        Dbg($"ResolveSelectedLicenseIdForAction: selected manually={_selectedLicenseId}");
+        return true;
+    }
+
+    private async Task WaitAndFinalizeReadInAsync(string logPath, SharedLicenseInfo info, string userName,
+        DateTime fromUtc) {
         Dbg($"WaitAndFinalizeReadInAsync: ENTER logPath={logPath} marker=Read-in result: OK. fromUtc={fromUtc:O}");
 
         const int maxAttempts = 3;
         const int attemptDelaySeconds = 10;
-        const int waitMaxSecondsPerAttempt = 30;
-        const int waitPollSeconds = 5;
+        const int waitMaxSecondsPerAttempt = 5;
 
         for (var attempt = 1; attempt <= maxAttempts; attempt++) {
             Dbg($"WaitAndFinalizeReadInAsync: ATTEMPT {attempt}/{maxAttempts}");
@@ -765,8 +914,7 @@ public partial class MainWindow {
                     logPath,
                     "Read-in result: OK.",
                     attemptFromUtc,
-                    maxWaitSeconds: waitMaxSecondsPerAttempt,
-                    delaySeconds: waitPollSeconds
+                    waitMaxSecondsPerAttempt
                 ).ConfigureAwait(false);
             }
             catch (Exception ex) {
@@ -793,9 +941,8 @@ public partial class MainWindow {
                 return;
             }
 
-            if (attempt < maxAttempts) {
+            if (attempt < maxAttempts)
                 await Task.Delay(TimeSpan.FromSeconds(attemptDelaySeconds)).ConfigureAwait(false);
-            }
         }
 
         Dbg("WaitAndFinalizeReadInAsync: ALL ATTEMPTS FAILED");
@@ -806,13 +953,13 @@ public partial class MainWindow {
         });
     }
 
-    private async Task WaitAndFinalizeWriteOutAsync(string logPath, SharedLicenseInfo info, string userName, DateTime fromUtc) {
+    private async Task WaitAndFinalizeWriteOutAsync(string logPath, SharedLicenseInfo info, string userName,
+        DateTime fromUtc) {
         Dbg($"WaitAndFinalizeWriteOutAsync: ENTER logPath={logPath} marker=WriteOut OK fromUtc={fromUtc:O}");
 
         const int maxAttempts = 3;
         const int attemptDelaySeconds = 10;
-        const int waitMaxSecondsPerAttempt = 30;
-        const int waitPollSeconds = 5;
+        const int waitMaxSecondsPerAttempt = 5;
 
         for (var attempt = 1; attempt <= maxAttempts; attempt++) {
             Dbg($"WaitAndFinalizeWriteOutAsync: ATTEMPT {attempt}/{maxAttempts}");
@@ -836,8 +983,7 @@ public partial class MainWindow {
                     logPath,
                     "WriteOut OK",
                     attemptFromUtc,
-                    maxWaitSeconds: waitMaxSecondsPerAttempt,
-                    delaySeconds: waitPollSeconds
+                    waitMaxSecondsPerAttempt
                 ).ConfigureAwait(false);
             }
             catch (Exception ex) {
@@ -864,9 +1010,8 @@ public partial class MainWindow {
                 return;
             }
 
-            if (attempt < maxAttempts) {
+            if (attempt < maxAttempts)
                 await Task.Delay(TimeSpan.FromSeconds(attemptDelaySeconds)).ConfigureAwait(false);
-            }
         }
 
         Dbg("WaitAndFinalizeWriteOutAsync: ALL ATTEMPTS FAILED");
@@ -876,9 +1021,11 @@ public partial class MainWindow {
             if (_mode == "writeout") Close();
         });
     }
-    
-    private static async Task<bool> WaitForModelSharingConfirmationAsync(string logPath, string marker, DateTime fromUtc, int maxWaitSeconds = 300, int delaySeconds = 5) {
-        Dbg($"WaitForModelSharingConfirmationAsync: ENTER marker='{marker}' fromUtc={fromUtc:O} maxWait={maxWaitSeconds}s delay={delaySeconds}s");
+
+    private static async Task<bool> WaitForModelSharingConfirmationAsync(string logPath, string marker,
+        DateTime fromUtc, int maxWaitSeconds = 300, int delaySeconds = 5) {
+        Dbg(
+            $"WaitForModelSharingConfirmationAsync: ENTER marker='{marker}' fromUtc={fromUtc:O} maxWait={maxWaitSeconds}s delay={delaySeconds}s");
 
         var start = DateTime.UtcNow;
         var timeout = TimeSpan.FromSeconds(maxWaitSeconds);
@@ -896,7 +1043,12 @@ public partial class MainWindow {
                         Dbg($"WaitForModelSharingConfirmationAsync: HasConfirmationLine={found}");
                     }
                     finally {
-                        try { File.Delete(tempPath); } catch (Exception ex) { Dbg("WaitForModelSharingConfirmationAsync: temp delete EX", ex); }
+                        try {
+                            File.Delete(tempPath);
+                        }
+                        catch (Exception ex) {
+                            Dbg("WaitForModelSharingConfirmationAsync: temp delete EX", ex);
+                        }
                     }
 
                     if (found) {
@@ -915,7 +1067,7 @@ public partial class MainWindow {
         Dbg("WaitForModelSharingConfirmationAsync: TIMEOUT -> false");
         return false;
     }
-    
+
     private static bool TryGetModelSharingLogPath(out string logPath) {
         logPath = null;
 
@@ -941,10 +1093,10 @@ public partial class MainWindow {
             return false;
         }
     }
-    
+
     private static bool HasConfirmationLine(string logPath, string marker, DateTime fromUtc) {
         Dbg($"HasConfirmationLine: ENTER logPath={logPath} marker='{marker}' fromUtc={fromUtc:O}");
-        
+
         string[] lines;
         try {
             lines = File.ReadAllLines(logPath);
@@ -964,7 +1116,7 @@ public partial class MainWindow {
             var endBracket = line.IndexOf(']', startBracket + 1);
 
             if (startBracket < 0 || endBracket <= startBracket + 1) continue;
-            
+
             var tsText = line.Substring(startBracket + 1, endBracket - startBracket - 1);
 
             if (!DateTime.TryParse(
@@ -972,9 +1124,7 @@ public partial class MainWindow {
                     CultureInfo.InvariantCulture,
                     DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
                     out var tsUtc))
-            {
                 continue;
-            }
 
             var isNewEnough = tsUtc >= fromUtc;
 
@@ -985,72 +1135,54 @@ public partial class MainWindow {
     }
 
     #endregion
-    
+
     #region Auto Login/Logout
 
     private async void StartAutoLoginWatcher() {
-        
         try {
-            if (System.Threading.Interlocked.Exchange(ref _autoLoginWatcherStarted, 1) == 1) {
+            if (Interlocked.Exchange(ref _autoLoginWatcherStarted, 1) == 1) {
                 Dbg("StartAutoLoginWatcher: already started -> return");
                 return;
             }
+
             Dbg($"StartAutoLoginWatcher: ENTER mode={_mode} autoLoginDone={_autoLoginDone} logoutDone={_logoutDone}");
 
             try {
                 ClearLog();
-                AppendLog("Czekam na wpis UserInfo w logu Tekli...");
+                AppendLog("Czekam na zapis LOG IN...");
                 Dbg("StartAutoLoginWatcher: UI cleared + message written.");
 
-                var start = DateTime.Now;
-                var maxWait = TimeSpan.FromMinutes(5);
-                var loop = 0;
-
-                while (!_autoLoginDone && DateTime.Now - start < maxWait) {
-                    loop++;
-                    var elapsed = DateTime.Now - start;
-                    Dbg($"StartAutoLoginWatcher: LOOP #{loop} elapsed={elapsed.TotalSeconds:0}s");
-
-                    try {
-                        if (TryGetLicenseFromLog(out var licenseId, out var loginTime)) {
-                            Dbg($"StartAutoLoginWatcher: TryGetLicenseFromLog=TRUE licenseId={licenseId} loginTime={loginTime:yyyy-MM-dd HH:mm:ss}");
-
-                            var userName = Environment.UserName;
-                            Dbg($"StartAutoLoginWatcher: current userName={userName}");
-
-                            var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
-                            Dbg("StartAutoLoginWatcher: LoadOrCreate OK");
-
-                            SharedLicenseManager.Login(info, userName, loginTime);
-                            Dbg("StartAutoLoginWatcher: SharedLicenseManager.Login OK");
-
-                            SharedLicenseFileService.Save(LicenseFilePath, info);
-                            Dbg($"StartAutoLoginWatcher: Save OK -> {LicenseFilePath}");
-
-                            _autoLoginDone = true;
-                            AppendLog($"LOG IN - {userName} - {loginTime.ToString(DateFormat)}");
-                            Dbg("StartAutoLoginWatcher: _autoLoginDone=true + UI log appended");
-
-                            break;
-                        }
-
-                        Dbg("StartAutoLoginWatcher: TryGetLicenseFromLog=FALSE (no UserInfo yet)");
-                    }
-                    catch (Exception ex) {
-                        Dbg("StartAutoLoginWatcher: EXCEPTION inside loop", ex);
-                    }
-
-                    await Task.Delay(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                if (!EnsureSelectedLicenseId()) {
+                    Dbg("StartAutoLoginWatcher: no selected license -> return");
+                    return;
                 }
 
-                Dbg($"StartAutoLoginWatcher: EXIT autoLoginDone={_autoLoginDone} elapsed={(DateTime.Now - start).TotalSeconds:0}s");
+                SaveSelectedLicenseId(_selectedLicenseId);
+
+                var loginTime = DateTime.Now;
+                var userName = Environment.UserName;
+
+                var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, _selectedLicenseId);
+                Dbg("StartAutoLoginWatcher: LoadOrCreate OK");
+
+                SharedLicenseManager.Login(info, userName, loginTime);
+                Dbg("StartAutoLoginWatcher: SharedLicenseManager.Login OK");
+
+                SharedLicenseFileService.Save(LicenseFilePath, info);
+                Dbg($"StartAutoLoginWatcher: Save OK -> {LicenseFilePath}");
+
+                _autoLoginDone = true;
+                AppendLog($"LOG IN - {userName} - {loginTime.ToString(DateFormat)}");
+                Dbg("StartAutoLoginWatcher: _autoLoginDone=true + UI log appended");
+
+                await Task.CompletedTask;
             }
             catch (Exception ex) {
-                Dbg("StartAutoLoginWatcher: OUTER EXCEPTION", ex);  
+                Dbg("StartAutoLoginWatcher: OUTER EXCEPTION", ex);
             }
         }
         catch {
-            //ignored
+            // ignored
         }
     }
 
@@ -1089,28 +1221,44 @@ public partial class MainWindow {
         }
     }
 
-    private static void RemoveCurrentUserLogin() {
+    private void RemoveCurrentUserLogin() {
         Dbg("RemoveCurrentUserLogin: ENTER");
 
         try {
-            if (!TryGetLicenseFromLog(out var licenseId, out var loginTime)) {
-                Dbg("RemoveCurrentUserLogin: TryGetLicenseFromLog=FALSE -> nothing to remove");
+            var userName = Environment.UserName;
+
+            if (string.IsNullOrWhiteSpace(userName)) {
+                Dbg("RemoveCurrentUserLogin: userName is empty -> nothing to remove");
                 return;
             }
 
-            Dbg($"RemoveCurrentUserLogin: licenseId={licenseId} loginTime={loginTime:yyyy-MM-dd HH:mm:ss}");
+            var infos = SharedLicenseFileService.LoadAll(LicenseFilePath);
+            var removedFromAny = false;
 
-            var info = SharedLicenseFileService.LoadOrCreate(LicenseFilePath, licenseId);
-            Dbg("RemoveCurrentUserLogin: LoadOrCreate OK");
+            foreach (var info in from info in infos
+                     where info != null && !string.IsNullOrWhiteSpace(info.LicenseId)
+                     let hadUser = info.Logins.Any(login =>
+                         login != null &&
+                         !string.IsNullOrWhiteSpace(login.User) &&
+                         string.Equals(login.User, userName, StringComparison.OrdinalIgnoreCase))
+                     where hadUser
+                     select info) {
+                Dbg($"RemoveCurrentUserLogin: removing user={userName} from licenseId={info.LicenseId}");
 
-            var userName = Environment.UserName;
-            Dbg($"RemoveCurrentUserLogin: userName={userName}");
+                SharedLicenseManager.Logout(info, userName);
+                SharedLicenseFileService.Save(LicenseFilePath, info);
 
-            SharedLicenseManager.Logout(info, userName);
-            Dbg("RemoveCurrentUserLogin: SharedLicenseManager.Logout OK");
+                removedFromAny = true;
+                Dbg($"RemoveCurrentUserLogin: removed user={userName} from licenseId={info.LicenseId}");
+            }
 
-            SharedLicenseFileService.Save(LicenseFilePath, info);
-            Dbg($"RemoveCurrentUserLogin: Save OK -> {LicenseFilePath}");
+            if (removedFromAny) {
+                DeleteSelectedLicenseId();
+                _selectedLicenseId = null;
+                Dbg("RemoveCurrentUserLogin: local selected license cleared");
+            }
+            else
+                Dbg($"RemoveCurrentUserLogin: user={userName} not found in any license");
         }
         catch (Exception ex) {
             Dbg("RemoveCurrentUserLogin: EXCEPTION", ex);
@@ -1151,133 +1299,49 @@ public partial class MainWindow {
         Dbg("OnClosed: EXIT");
     }
 
-    private static bool TryGetLicenseFromLog(out string licenseId, out DateTime loginTime) {
-        licenseId = null;
-        loginTime = DateTime.MinValue;
-
-        var rawUser = Environment.UserName;
-        var normalizedUser = NormalizeUserName(rawUser);
-
-        Dbg($"TryGetLicenseFromLog: rawUser={rawUser} normalizedUser={normalizedUser}");
-
-        const string dir = @"C:\TeklaStructuresModels";
-
-        var candidates = new List<string> {
-            Path.Combine(dir, $"TeklaStructures_{rawUser}.log"),
-            Path.Combine(dir, $"TeklaStructures_{normalizedUser}.log")
-        };
-
-        string logPath = null;
-
-        foreach (var c in candidates) {
-            Dbg($"TryGetLicenseFromLog: checking {c}");
-            if (File.Exists(c)) {
-                logPath = c;
-                Dbg($"TryGetLicenseFromLog: FOUND log {logPath}");
-                break;
-            }
+    private bool EnsureSelectedLicenseId() {
+        if (!string.IsNullOrWhiteSpace(_selectedLicenseId)) {
+            Dbg($"EnsureSelectedLicenseId: already in memory={_selectedLicenseId}");
+            return true;
         }
 
-        if (logPath == null) {
-            try {
-                if (Directory.Exists(dir)) {
-                    var logs = Directory.GetFiles(dir, "TeklaStructures_*.log", SearchOption.TopDirectoryOnly);
-                    if (logs.Length > 0) {
-                        logPath = logs.OrderByDescending(File.GetLastWriteTime).FirstOrDefault();
-                        Dbg($"TryGetLicenseFromLog: fallback newest log={logPath}");
-                    }
-                    else {
-                        Dbg("TryGetLicenseFromLog: fallback scan -> no TeklaStructures_*.log files");
-                    }
-                }
-                else {
-                    Dbg($"TryGetLicenseFromLog: dir missing: {dir}");
-                }
-            }
-            catch (Exception ex) {
-                Dbg("TryGetLicenseFromLog: fallback scan EX", ex);
-            }
+        if (_mode is "readin" or "writeout")
+            return ResolveSelectedLicenseIdForAction();
+
+        var licenseIdsFromFile = FindLicenseIdsByCurrentUserInLicenseFile();
+
+        if (licenseIdsFromFile.Count == 1) {
+            _selectedLicenseId = licenseIdsFromFile[0];
+            SaveSelectedLicenseId(_selectedLicenseId);
+            Dbg($"EnsureSelectedLicenseId: resolved from main file={_selectedLicenseId}");
+            return true;
         }
 
-        if (logPath == null) {
-            Dbg("TryGetLicenseFromLog: no matching log file found");
+        var savedLicenseId = LoadSelectedLicenseId();
+
+        if (!string.IsNullOrWhiteSpace(savedLicenseId) &&
+            licenseIdsFromFile.Contains(savedLicenseId, StringComparer.OrdinalIgnoreCase)) {
+            _selectedLicenseId = savedLicenseId;
+            Dbg($"EnsureSelectedLicenseId: resolved from saved among matches={_selectedLicenseId}");
+            return true;
+        }
+
+        var window = new LicenseAccountSelectionWindow(savedLicenseId);
+        var result = window.ShowDialog();
+
+        if (result != true || string.IsNullOrWhiteSpace(window.SelectedLicenseId))
             return false;
-        }
 
-        Dbg($"TryGetLicenseFromLog: ENTER logPath={logPath}");
-
-        try {
-            var tempPath = SafeReadLogToTemp(logPath);
-            if (tempPath == null) {
-                Dbg("TryGetLicenseFromLog: SafeReadLogToTemp returned NULL");
-                return false;
-            }
-
-            Dbg($"TryGetLicenseFromLog: tempPath={tempPath}");
-
-            string[] lines;
-            try {
-                lines = File.ReadAllLines(tempPath);
-            }
-            finally {
-                try {
-                    File.Delete(tempPath);
-                    Dbg("TryGetLicenseFromLog: temp deleted");
-                }
-                catch (Exception ex) {
-                    Dbg("TryGetLicenseFromLog: temp delete EX", ex);
-                }
-            }
-
-            Dbg($"TryGetLicenseFromLog: lines={lines.Length}");
-
-            for (var i = lines.Length - 1; i >= 0; i--) {
-                var line = lines[i];
-
-                if (line.IndexOf("UserInfo", StringComparison.OrdinalIgnoreCase) < 0)
-                    continue;
-
-                Dbg($"TryGetLicenseFromLog: UserInfo found at lineIndex={i}");
-                Dbg($"TryGetLicenseFromLog: line='{line}'");
-
-                var parts = line.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
-                Dbg($"TryGetLicenseFromLog: partsCount={parts.Length}");
-
-                if (parts.Length < 3)
-                    continue;
-
-                string lic = null;
-                foreach (var p in parts) {
-                    if (p.Contains("@") && !p.StartsWith("http", StringComparison.OrdinalIgnoreCase)) {
-                        lic = p.Trim();
-                        break;
-                    }
-                }
-
-                if (string.IsNullOrEmpty(lic)) {
-                    Dbg("TryGetLicenseFromLog: no license token found in UserInfo line");
-                    continue;
-                }
-
-                licenseId = lic;
-                loginTime = DateTime.Now;
-                Dbg($"TryGetLicenseFromLog: SUCCESS licenseId={licenseId} loginTime={loginTime:yyyy-MM-dd HH:mm:ss}");
-                return true;
-            }
-
-            Dbg("TryGetLicenseFromLog: END no UserInfo with license found");
-            return false;
-        }
-        catch (Exception ex) {
-            Dbg("TryGetLicenseFromLog: EXCEPTION", ex);
-            return false;
-        }
+        _selectedLicenseId = window.SelectedLicenseId;
+        SaveSelectedLicenseId(_selectedLicenseId);
+        Dbg($"EnsureSelectedLicenseId: selected manually={_selectedLicenseId}");
+        return true;
     }
 
     #endregion
 
     #region Scripts
-    
+
     private static void ReadIn() {
         TSMO.Operation.RunMacro(@"Z:\000_PMJ\Tekla\HFT_SharedTool\SharedTool\ReadIn.cs");
     }
@@ -1287,5 +1351,4 @@ public partial class MainWindow {
     }
 
     #endregion
-
 }
