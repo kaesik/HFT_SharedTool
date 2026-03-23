@@ -2,81 +2,110 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="HFT Shared Tool"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
         SizeToContent="WidthAndHeight"
         MinWidth="700"
         MinHeight="420"
         MaxWidth="1000"
         MaxHeight="900"
         WindowStartupLocation="CenterScreen"
-        Background="#F4F6F8"
-        FontFamily="Segoe UI"
-        WindowStyle="SingleBorderWindow">
+        FontFamily="Segoe UI Variable, Segoe UI">
 
-    <Window.Resources>
-        <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#1F2937"/>
-        </Style>
+    <Border Background="{DynamicResource WindowBgBrush}"
+            BorderBrush="{DynamicResource WindowBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="8">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.4" Color="#000000" />
+        </Border.Effect>
 
-        <Style x:Key="CardBorderStyle" TargetType="Border">
-            <Setter Property="Background" Value="White"/>
-            <Setter Property="CornerRadius" Value="12"/>
-            <Setter Property="Padding" Value="16"/>
-            <Setter Property="Margin" Value="0,0,0,12"/>
-            <Setter Property="BorderBrush" Value="#D8DEE6"/>
-            <Setter Property="BorderThickness" Value="1"/>
-        </Style>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="36" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
 
-        <Style TargetType="RichTextBox">
-            <Setter Property="Background" Value="#F8FAFC"/>
-            <Setter Property="BorderBrush" Value="#D8DEE6"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="12"/>
-            <Setter Property="FontSize" Value="14"/>
-            <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
-            <Setter Property="IsReadOnly" Value="True"/>
-            <Setter Property="IsDocumentEnabled" Value="False"/>
-            <Setter Property="Focusable" Value="False"/>
-            <Setter Property="MinWidth" Value="640"/>
-            <Setter Property="MinHeight" Value="260"/>
-            <Setter Property="MaxHeight" Value="650"/>
-        </Style>
-    </Window.Resources>
+            <Grid MouseLeftButtonDown="TitleBar_MouseLeftButtonDown"
+                  Background="Transparent">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
 
-    <Grid Margin="16">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
+                <StackPanel Orientation="Horizontal"
+                            VerticalAlignment="Center"
+                            Margin="10,0,0,0">
+                    <Rectangle Width="52" Height="28"
+                               Fill="{DynamicResource TextPrimaryBrush}"
+                               RenderOptions.BitmapScalingMode="HighQuality">
+                        <Rectangle.OpacityMask>
+                            <ImageBrush ImageSource="/HFT_SharedTool;component/Assets/logo.png" Stretch="Uniform" />
+                        </Rectangle.OpacityMask>
+                    </Rectangle>
+                    <TextBlock Text="SHARED TOOL"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               VerticalAlignment="Center"
+                               Margin="8,0,0,0" />
+                </StackPanel>
 
-        <Border Style="{StaticResource CardBorderStyle}">
-            <StackPanel>
-                <TextBlock Text="HFT Shared Tool"
-                           FontSize="22"
-                           FontWeight="Bold"
-                           Margin="0,0,0,6"/>
+                <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <Button Style="{StaticResource IconButton}"
+                            Content="&#xE793;"
+                            Click="ThemeToggle_Click"
+                            ToolTip="Przełącz motyw" />
+                    <Button Style="{StaticResource CloseButton}"
+                            Content="&#xE8BB;"
+                            Click="CloseButton_Click"
+                            ToolTip="Zamknij" />
+                </StackPanel>
+            </Grid>
+
+            <StackPanel Grid.Row="1" Margin="16,10,16,16">
+                <Border Height="1"
+                        Background="{DynamicResource DividerColorBrush}"
+                        Margin="0,0,0,12" />
+
+                <TextBlock Text="STATUS"
+                           FontSize="10"
+                           FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextTertiaryBrush}"
+                           Margin="0,0,0,4" />
                 <TextBlock x:Name="ModelDrawingLabel"
                            Text="Status modelu"
-                           FontSize="14"
-                           Foreground="#4B5563"
-                           TextWrapping="Wrap"/>
-            </StackPanel>
-        </Border>
+                           FontSize="11"
+                           Foreground="{DynamicResource TextPrimaryBrush}"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,14" />
 
-        <Border Grid.Row="1" Style="{StaticResource CardBorderStyle}">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
+                <Border Height="1"
+                        Background="{DynamicResource DividerColorBrush}"
+                        Margin="0,0,0,12" />
 
-                <TextBlock Text="Log operacji"
-                           FontSize="16"
+                <TextBlock Text="LOG OPERACJI"
+                           FontSize="10"
                            FontWeight="SemiBold"
-                           Margin="0,0,0,12"/>
+                           Foreground="{DynamicResource TextTertiaryBrush}"
+                           Margin="0,0,0,6" />
 
-                <RichTextBox x:Name="LogTextBox"
-                             Grid.Row="1"/>
-            </Grid>
-        </Border>
-    </Grid>
+                <Border BorderBrush="{DynamicResource BorderColorBrush}"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Background="{DynamicResource ControlBgBrush}">
+                    <ScrollViewer x:Name="LogScrollViewer"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  MinHeight="260"
+                                  MaxHeight="600"
+                                  Padding="12">
+                        <StackPanel x:Name="LogPanel"
+                                    TextBlock.Foreground="{DynamicResource TextPrimaryBrush}" />
+                    </ScrollViewer>
+                </Border>
+            </StackPanel>
+        </Grid>
+    </Border>
 </Window>

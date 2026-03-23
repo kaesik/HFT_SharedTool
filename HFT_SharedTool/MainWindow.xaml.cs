@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -8,8 +8,11 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Documents;
+using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Shapes;
+using Path = System.IO.Path;
 using TSM = Tekla.Structures.Model;
 using TSMO = Tekla.Structures.Model.Operations;
 
@@ -18,6 +21,9 @@ namespace HFT_SharedTool;
 public partial class MainWindow {
     #region Constants
 
+    // Shared constants live in SharedConstants.cs.
+    // SelectedLicenseFilePath is intentionally local — it is a per-user file
+    // stored on the local machine and is only used inside MainWindow.
     private static readonly string SelectedLicenseFilePath =
         Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -195,7 +201,7 @@ public partial class MainWindow {
 
     private void ClearLog() {
         try {
-            RunOnUi(() => { LogTextBox?.Document.Blocks.Clear(); });
+            RunOnUi(() => LogPanel?.Children.Clear());
         }
         catch {
             // ignored
@@ -205,10 +211,15 @@ public partial class MainWindow {
     private void AppendLog(string text) {
         try {
             RunOnUi(() => {
-                if (LogTextBox == null) return;
+                if (LogPanel == null) return;
 
-                LogTextBox.Document.Blocks.Add(new Paragraph(new Run(text)));
-                LogTextBox.ScrollToEnd();
+                LogPanel.Children.Add(new TextBlock {
+                    Text = text,
+                    FontSize = 13,
+                    Margin = new Thickness(0, 3, 0, 3)
+                });
+
+                LogScrollViewer.ScrollToEnd();
             });
         }
         catch {
@@ -216,25 +227,118 @@ public partial class MainWindow {
         }
     }
 
-    private void AppendColoredStatus(string text, bool isUsable) {
+    private void AppendStatusRow(SharedLicenseInfo info, DateTime now, bool isUsable) {
         try {
             RunOnUi(() => {
-                if (LogTextBox == null) {
-                    AppendLog(text + (isUsable ? " [USABLE]" : " [NOT USABLE]"));
-                    return;
+                if (LogPanel == null) return;
+
+                var hasRead = info.ReadTime.HasValue;
+                var hasWrite = info.WriteTime.HasValue;
+
+                string action, actionUser;
+                DateTime? actionTime;
+
+                if (hasRead && (!hasWrite || info.ReadTime.Value > info.WriteTime.Value)) {
+                    action = "READ IN";
+                    actionUser = info.ReadUser ?? "";
+                    actionTime = info.ReadTime;
+                }
+                else if (hasWrite) {
+                    action = "WRITE OUT";
+                    actionUser = info.WriteUser ?? "";
+                    actionTime = info.WriteTime;
+                }
+                else {
+                    action = "";
+                    actionUser = "";
+                    actionTime = null;
                 }
 
-                var paragraph = new Paragraph(new Run(text)) {
-                    Foreground = isUsable ? Brushes.Green : Brushes.Red
+                var loggedUser = info.Logins.Count > 0
+                    ? string.Join(", ", info.Logins.Select(x => x.User))
+                    : "WOLNE";
+
+                var tooltipText = info.NextUsable.HasValue
+                    ? $"Dostępna od: {info.NextUsable.Value:yyyy-MM-dd HH:mm}"
+                    : "Dostępna teraz";
+
+                var row = new StackPanel {
+                    Orientation = Orientation.Horizontal,
+                    Margin = new Thickness(0, 3, 0, 3)
                 };
 
-                LogTextBox.Document.Blocks.Add(paragraph);
-                LogTextBox.ScrollToEnd();
+                row.Children.Add(new Ellipse {
+                    Width = 9,
+                    Height = 9,
+                    Fill = isUsable
+                        ? new SolidColorBrush(Color.FromRgb(0x6E, 0xC9, 0x6E))
+                        : new SolidColorBrush(Color.FromRgb(0xE2, 0x4B, 0x4A)),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 8, 0),
+                    ToolTip = tooltipText
+                });
+
+                row.Children.Add(new TextBlock {
+                    Text = info.LicenseId,
+                    FontSize = 13,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 8, 0)
+                });
+
+                row.Children.Add(MakeBadge(loggedUser, loggedUser == "WOLNE"));
+
+                if (!string.IsNullOrEmpty(action)) {
+                    row.Children.Add(new TextBlock {
+                        Text = action,
+                        FontSize = 11,
+                        Foreground = new SolidColorBrush(Color.FromArgb(0xAA, 0x80, 0x80, 0x80)),
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Margin = new Thickness(8, 0, 8, 0)
+                    });
+
+                    if (!string.IsNullOrEmpty(actionUser))
+                        row.Children.Add(MakeBadge(actionUser, false));
+
+                    if (actionTime.HasValue)
+                        row.Children.Add(new TextBlock {
+                            Text = actionTime.Value.ToString(SharedConstants.DateFormat),
+                            FontSize = 11,
+                            Foreground = new SolidColorBrush(Color.FromArgb(0x88, 0x80, 0x80, 0x80)),
+                            VerticalAlignment = VerticalAlignment.Center,
+                            Margin = new Thickness(8, 0, 0, 0)
+                        });
+                }
+
+                LogPanel.Children.Add(row);
+                LogScrollViewer.ScrollToEnd();
             });
         }
         catch {
             // ignored
         }
+    }
+
+    private static Border MakeBadge(string text, bool isFree) {
+        var bgColor = isFree
+            ? Color.FromArgb(0x28, 0x80, 0x80, 0x80)
+            : Color.FromArgb(0x28, 0x60, 0xCD, 0xFF);
+
+        var fgColor = isFree
+            ? Color.FromArgb(0xAA, 0x80, 0x80, 0x80)
+            : Color.FromRgb(0x60, 0xCD, 0xFF);
+
+        return new Border {
+            Background = new SolidColorBrush(bgColor),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(7, 1, 7, 2),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 0),
+            Child = new TextBlock {
+                Text = text,
+                FontSize = 11,
+                Foreground = new SolidColorBrush(fgColor)
+            }
+        };
     }
 
     #endregion
@@ -297,11 +401,11 @@ public partial class MainWindow {
         }
 
         var currentUser = Environment.UserName;
+        var now = DateTime.Now;
 
         foreach (var info in infos) {
-            var line = SharedLicenseManager.FormatStatus(info, DateTime.Now, currentUser,
-                out var isUsableForCurrentUser);
-            AppendColoredStatus(line, isUsableForCurrentUser);
+            SharedLicenseManager.FormatStatus(info, now, currentUser, out var isUsable);
+            AppendStatusRow(info, now, isUsable);
         }
     }
 
@@ -1128,6 +1232,22 @@ public partial class MainWindow {
     private static void WriteOut() {
         TSMO.Operation.RunMacro(
             @"Z:\000_PMJ\Tekla\HFT_SharedTool\SharedTool\WriteOut.cs");
+    }
+
+    #endregion
+
+    #region Title Bar
+
+    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) {
+        DragMove();
+    }
+
+    private void ThemeToggle_Click(object sender, RoutedEventArgs e) {
+        ThemeService.Toggle();
+    }
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e) {
+        Close();
     }
 
     #endregion

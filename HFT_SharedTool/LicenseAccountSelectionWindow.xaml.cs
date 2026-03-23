@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
+using System.Windows.Input;
 
 namespace HFT_SharedTool;
 
@@ -73,6 +74,14 @@ public partial class LicenseAccountSelectionWindow {
 
         SelectedLicenseId = selectedItem.LicenseId;
         DialogResult = true;
+        Close();
+    }
+
+    private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e) {
+        DragMove();
+    }
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e) {
         Close();
     }
 
