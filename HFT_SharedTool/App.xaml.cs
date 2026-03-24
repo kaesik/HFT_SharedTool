@@ -7,7 +7,7 @@ using System.Windows;
 namespace HFT_SharedTool;
 
 public partial class App : Application {
-    private static readonly string LocalDir =
+    private static readonly string BaseLocalDir =
         Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "HFT_SharedTool",
@@ -27,20 +27,19 @@ public partial class App : Application {
 
     private static bool IsRunningFromLocalCopy() {
         var exe = Assembly.GetExecutingAssembly().Location;
-        return exe.StartsWith(LocalDir, StringComparison.OrdinalIgnoreCase);
+        return exe.StartsWith(BaseLocalDir, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void CopyAndRelaunch(string[] args) {
         try {
+            var instanceDir = Path.Combine(BaseLocalDir, Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(instanceDir);
+
             var sourceDir = AppDomain.CurrentDomain.BaseDirectory;
-            Directory.CreateDirectory(LocalDir);
+            foreach (var file in Directory.GetFiles(sourceDir, "*", SearchOption.TopDirectoryOnly))
+                File.Copy(file, Path.Combine(instanceDir, Path.GetFileName(file)), true);
 
-            foreach (var file in Directory.GetFiles(sourceDir, "*", SearchOption.TopDirectoryOnly)) {
-                var dest = Path.Combine(LocalDir, Path.GetFileName(file));
-                File.Copy(file, dest, true);
-            }
-
-            var localExe = Path.Combine(LocalDir,
+            var localExe = Path.Combine(instanceDir,
                 Path.GetFileName(Assembly.GetExecutingAssembly().Location));
 
             Process.Start(new ProcessStartInfo {
@@ -48,6 +47,8 @@ public partial class App : Application {
                 Arguments = args.Length > 0 ? string.Join(" ", args) : "",
                 UseShellExecute = true
             });
+
+            CleanupOldInstances(instanceDir);
         }
         catch (Exception ex) {
             MessageBox.Show(
@@ -58,10 +59,35 @@ public partial class App : Application {
         }
     }
 
+    private static void CleanupOldInstances(string currentInstanceDir) {
+        try {
+            if (!Directory.Exists(BaseLocalDir)) return;
+
+            foreach (var dir in Directory.GetDirectories(BaseLocalDir)) {
+                if (string.Equals(dir, currentInstanceDir, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                try {
+                    Directory.Delete(dir, true);
+                }
+                catch {
+                    // ignored
+                }
+            }
+        }
+        catch {
+            // ignored
+        }
+    }
+
     private static void RunApp(string[] args) {
         ThemeService.Initialize();
         var mode = args.Length > 0 ? args[0].ToLowerInvariant() : "standalone";
         var mainWindow = new MainWindow(mode);
-        mainWindow.Show();
+        try {
+            mainWindow.Show();
+        }
+        catch (InvalidOperationException) {
+            Current.Shutdown();
+        }
     }
 }

@@ -1,10 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -21,14 +19,44 @@ namespace HFT_SharedTool;
 public partial class MainWindow {
     #region Constants
 
-    // Shared constants live in SharedConstants.cs.
-    // SelectedLicenseFilePath is intentionally local — it is a per-user file
-    // stored on the local machine and is only used inside MainWindow.
     private static readonly string SelectedLicenseFilePath =
         Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "HFT_SharedTool",
             $"selected_license_{Environment.UserName}.txt");
+
+    #endregion
+
+    #region Shared Model Helpers
+
+    private static bool TryGetModelSharingLogPath(out string logPath) {
+        logPath = null;
+
+        try {
+            var model = new TSM.Model();
+            if (!model.GetConnectionStatus())
+                return false;
+
+            var info = model.GetInfo();
+            if (!info.SharedModel)
+                return false;
+
+            var basePath = info.ModelPath;
+            if (string.IsNullOrWhiteSpace(basePath))
+                return false;
+
+            basePath = basePath.TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar);
+
+            logPath = Path.Combine(basePath, "logs", "modelsharing.log");
+            return true;
+        }
+        catch {
+            logPath = null;
+            return false;
+        }
+    }
 
     #endregion
 
@@ -41,6 +69,8 @@ public partial class MainWindow {
     private TSM.Events _events;
     private int _logoutDone;
     private string _selectedLicenseId;
+    private int _readInStarted;
+    private int _writeOutStarted;
 
     #endregion
 
@@ -57,9 +87,11 @@ public partial class MainWindow {
     }
 
     public MainWindow(string mode) {
-        Task.Run(DumpTeklaDiagnostics);
         _mode = (mode ?? "standalone").Trim().ToLowerInvariant();
         _trimbleEmail = TeklaAccountService.GetTrimbleEmail();
+
+        Opacity = 0;
+        ShowInTaskbar = false;
 
         Dbg($"START MainWindow mode={_mode}");
 
@@ -78,18 +110,45 @@ public partial class MainWindow {
 
         InitializeComponent();
 
-        switch (_mode) {
-            case "autologin" or "readin" or "writeout" when !EnsureSelectedLicenseId():
-                Close();
-                return;
-            case "standalone" or "check" or "ckeck":
-                ModelDrawingLabel.Text = "Tryb odczytu pliku licencji";
-                Dispatcher.BeginInvoke(new Action(BtnCheck_Click));
-                return;
+        Loaded += async (_, _) => await InitializeAfterLoadAsync();
+    }
+
+    private async Task InitializeAfterLoadAsync() {
+        if (_mode is "standalone" or "check" or "ckeck") {
+            Opacity = 1;
+            ShowInTaskbar = true;
+            ModelDrawingLabel.Text = "Tryb odczytu pliku licencji";
+            Dispatcher.BeginInvoke(new Action(BtnCheck_Click));
+            return;
         }
 
-        if (!TryWaitForSharedModel(out var model)) {
-            ModelDrawingLabel.Text = "Brak połączenia z modelem współdzielonym";
+        var myModel = await WaitForSharedModelOnUiThreadAsync();
+
+        if (myModel == null) {
+            Dbg("InitializeAfterLoadAsync: model=null -> Close");
+            Close();
+            return;
+        }
+
+        TSM.ModelInfo modelInfo;
+
+        try {
+            modelInfo = myModel.GetInfo();
+            Dbg($"InitializeAfterLoadAsync: sharedModel={modelInfo.SharedModel}");
+        }
+        catch (Exception ex) {
+            Dbg("InitializeAfterLoadAsync: GetInfo EX", ex);
+            Close();
+            return;
+        }
+
+        if (!modelInfo.SharedModel) {
+            Dbg("InitializeAfterLoadAsync: sharedModel=FALSE -> Close");
+            Close();
+            return;
+        }
+
+        if (!EnsureSelectedLicenseId()) {
             Close();
             return;
         }
@@ -99,29 +158,87 @@ public partial class MainWindow {
         _events.TeklaStructuresExit += OnTeklaStructuresExit;
         _events.Register();
 
-        var modelName = model.GetInfo().ModelName.Replace(".db1", "");
+        var modelName = modelInfo.ModelName.Replace(".db1", "");
         ModelDrawingLabel.Text = $"Połączono z {modelName}";
+        Dbg($"InitializeAfterLoadAsync: modelName={modelName}");
 
         switch (_mode) {
             case "autologin":
                 HideWindow();
                 Dispatcher.BeginInvoke(new Action(StartAutoLoginWatcher));
                 break;
-
             case "readin":
                 HideWindow();
                 Dispatcher.BeginInvoke(new Action(BtnReadIn_Click));
                 break;
-
             case "writeout":
                 HideWindow();
                 Dispatcher.BeginInvoke(new Action(BtnWriteOut_Click));
                 break;
-
             default:
+                Opacity = 1;
+                ShowInTaskbar = true;
                 Dispatcher.BeginInvoke(new Action(BtnCheck_Click));
                 break;
         }
+    }
+
+    private async Task<TSM.Model> WaitForSharedModelOnUiThreadAsync(
+        int maxWaitSeconds = 300,
+        int delaySeconds = 5) {
+        Dbg($"WaitForSharedModelOnUiThreadAsync: ENTER maxWaitSeconds={maxWaitSeconds} delaySeconds={delaySeconds}");
+
+        var timeout = TimeSpan.FromSeconds(maxWaitSeconds);
+        var delay = TimeSpan.FromSeconds(delaySeconds);
+        var start = DateTime.Now;
+        var attempt = 0;
+
+        while (DateTime.Now - start < timeout) {
+            attempt++;
+
+            TSM.Model model = null;
+            var connected = false;
+            var sharedModel = false;
+
+            try {
+                await Dispatcher.InvokeAsync(() => {
+                    try {
+                        model = new TSM.Model();
+                        connected = model.GetConnectionStatus();
+
+                        if (!connected) {
+                            Dbg($"WaitForSharedModelOnUiThreadAsync: attempt={attempt} connected=FALSE");
+                            return;
+                        }
+
+                        var info = model.GetInfo();
+                        sharedModel = info.SharedModel;
+
+                        Dbg(
+                            $"WaitForSharedModelOnUiThreadAsync: attempt={attempt} connected=TRUE sharedModel={sharedModel}");
+                    }
+                    catch (Exception ex) {
+                        Dbg($"WaitForSharedModelOnUiThreadAsync: attempt={attempt} EX", ex);
+                        model = null;
+                        connected = false;
+                        sharedModel = false;
+                    }
+                });
+            }
+            catch (Exception ex) {
+                Dbg($"WaitForSharedModelOnUiThreadAsync: attempt={attempt} Dispatcher EX", ex);
+            }
+
+            if (connected && sharedModel && model != null) {
+                Dbg("WaitForSharedModelOnUiThreadAsync: SUCCESS");
+                return model;
+            }
+
+            await Task.Delay(delay);
+        }
+
+        Dbg("WaitForSharedModelOnUiThreadAsync: TIMEOUT");
+        return null;
     }
 
     #endregion
@@ -216,6 +333,7 @@ public partial class MainWindow {
                 LogPanel.Children.Add(new TextBlock {
                     Text = text,
                     FontSize = 13,
+                    Foreground = Application.Current.FindResource("TextPrimaryBrush") as Brush,
                     Margin = new Thickness(0, 3, 0, 3)
                 });
 
@@ -227,7 +345,7 @@ public partial class MainWindow {
         }
     }
 
-    private void AppendStatusRow(SharedLicenseInfo info, DateTime now, bool isUsable) {
+    private void AppendStatusRow(SharedLicenseInfo info, bool isUsable) {
         try {
             RunOnUi(() => {
                 if (LogPanel == null) return;
@@ -281,6 +399,7 @@ public partial class MainWindow {
                 row.Children.Add(new TextBlock {
                     Text = info.LicenseId,
                     FontSize = 13,
+                    Foreground = Application.Current.FindResource("TextPrimaryBrush") as Brush,
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(0, 0, 8, 0)
                 });
@@ -347,15 +466,24 @@ public partial class MainWindow {
 
     private void BtnReadIn_Click() {
         try {
+            if (Interlocked.Exchange(ref _readInStarted, 1) == 1) {
+                Dbg("BtnReadIn_Click: already started -> return");
+                return;
+            }
+
             ClearLog();
 
-            if (!EnsureSelectedLicenseId())
+            if (!EnsureSelectedLicenseId()) {
+                Interlocked.Exchange(ref _readInStarted, 0);
                 return;
+            }
 
             SaveSelectedLicenseId(_selectedLicenseId);
 
-            if (!TryGetModelSharingLogPath(out var modelSharingLogPath))
+            if (!TryGetModelSharingLogPath(out var modelSharingLogPath)) {
+                Interlocked.Exchange(ref _readInStarted, 0);
                 return;
+            }
 
             var info = SharedLicenseFileService.LoadOrCreate(
                 SharedConstants.LicenseFilePath, _selectedLicenseId);
@@ -364,21 +492,31 @@ public partial class MainWindow {
             _ = WaitAndFinalizeReadInAsync(modelSharingLogPath, info, userName);
         }
         catch (Exception ex) {
+            Interlocked.Exchange(ref _readInStarted, 0);
             MessageBox.Show($"READ IN: wyjątek: {ex.Message}");
         }
     }
 
     private void BtnWriteOut_Click() {
         try {
+            if (Interlocked.Exchange(ref _writeOutStarted, 1) == 1) {
+                Dbg("BtnWriteOut_Click: already started -> return");
+                return;
+            }
+
             ClearLog();
 
-            if (!EnsureSelectedLicenseId())
+            if (!EnsureSelectedLicenseId()) {
+                Interlocked.Exchange(ref _writeOutStarted, 0);
                 return;
+            }
 
             SaveSelectedLicenseId(_selectedLicenseId);
 
-            if (!TryGetModelSharingLogPath(out var modelSharingLogPath))
+            if (!TryGetModelSharingLogPath(out var modelSharingLogPath)) {
+                Interlocked.Exchange(ref _writeOutStarted, 0);
                 return;
+            }
 
             var info = SharedLicenseFileService.LoadOrCreate(
                 SharedConstants.LicenseFilePath, _selectedLicenseId);
@@ -387,6 +525,7 @@ public partial class MainWindow {
             _ = WaitAndFinalizeWriteOutAsync(modelSharingLogPath, info, userName);
         }
         catch (Exception ex) {
+            Interlocked.Exchange(ref _writeOutStarted, 0);
             MessageBox.Show($"WRITE OUT: wyjątek: {ex.Message}");
         }
     }
@@ -405,7 +544,7 @@ public partial class MainWindow {
 
         foreach (var info in infos) {
             SharedLicenseManager.FormatStatus(info, now, currentUser, out var isUsable);
-            AppendStatusRow(info, now, isUsable);
+            AppendStatusRow(info, isUsable);
         }
     }
 
@@ -613,176 +752,6 @@ public partial class MainWindow {
 
     #endregion
 
-    #region Tekla Diagnostics And Native Helpers
-
-    private static void DumpTeklaDiagnostics() {
-        try {
-            Dbg("DumpTeklaDiagnostics: ENTER");
-
-            Dbg(
-                $"DumpTeklaDiagnostics: Tool Is64BitProcess={Environment.Is64BitProcess} Is64BitOS={Environment.Is64BitOperatingSystem}");
-
-            var xsDataDir = Environment.GetEnvironmentVariable("XSDATADIR") ?? "(null)";
-            var xsBinDir = Environment.GetEnvironmentVariable("XSBIN") ?? "(null)";
-            Dbg($"DumpTeklaDiagnostics: XSDATADIR={xsDataDir}");
-            Dbg($"DumpTeklaDiagnostics: XSBIN={xsBinDir}");
-
-            try {
-                var asm = typeof(TSM.Model).Assembly;
-                Dbg($"DumpTeklaDiagnostics: Tekla.Structures.Model.dll Location={asm.Location}");
-                Dbg($"DumpTeklaDiagnostics: Tekla.Structures.Model.dll Version={asm.GetName().Version}");
-            }
-            catch (Exception ex) {
-                Dbg("DumpTeklaDiagnostics: could not read Tekla.Structures.Model assembly info", ex);
-            }
-
-            try {
-                var teklaProcs = Process.GetProcesses()
-                    .Where(p => {
-                        try {
-                            return p.ProcessName.IndexOf("TeklaStructures",
-                                StringComparison.OrdinalIgnoreCase) >= 0;
-                        }
-                        catch {
-                            return false;
-                        }
-                    })
-                    .ToList();
-
-                Dbg($"DumpTeklaDiagnostics: TeklaStructures process count={teklaProcs.Count}");
-
-                foreach (var p in teklaProcs)
-                    try {
-                        Dbg(
-                            $"DumpTeklaDiagnostics: Tekla PID={p.Id} Name={p.ProcessName} SessionId={p.SessionId}");
-
-                        if (Environment.Is64BitOperatingSystem) {
-                            var isWow64 = IsWow64Process(p.Handle);
-                            var teklaIs64 = !isWow64;
-                            Dbg(
-                                $"DumpTeklaDiagnostics: Tekla PID={p.Id} Is64Bit={teklaIs64} (IsWow64={isWow64})");
-                        }
-                    }
-                    catch (Exception ex) {
-                        Dbg("DumpTeklaDiagnostics: reading Tekla process info EX", ex);
-                    }
-            }
-            catch (Exception ex) {
-                Dbg("DumpTeklaDiagnostics: process scan EX", ex);
-            }
-
-            Dbg("DumpTeklaDiagnostics: EXIT");
-        }
-        catch {
-            // ignored
-        }
-    }
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool IsWow64Process(IntPtr hProcess, out bool wow64Process);
-
-    private static bool IsWow64Process(IntPtr hProcess) {
-        try {
-            if (!Environment.Is64BitOperatingSystem) return false;
-            return IsWow64Process(hProcess, out var wow64) && wow64;
-        }
-        catch {
-            return false;
-        }
-    }
-
-    #endregion
-
-    #region Shared Model Helpers
-
-    private static bool TryWaitForSharedModel(
-        out TSM.Model model,
-        int maxWaitSeconds = 300,
-        int delaySeconds = 5) {
-        Dbg(
-            $"TryWaitForSharedModel: ENTER maxWaitSeconds={maxWaitSeconds} delaySeconds={delaySeconds}");
-
-        model = null;
-        var timeout = TimeSpan.FromSeconds(maxWaitSeconds);
-        var delay = TimeSpan.FromSeconds(delaySeconds);
-        var start = DateTime.Now;
-        var attempt = 0;
-
-        while (DateTime.Now - start < timeout) {
-            attempt++;
-
-            try {
-                var m = new TSM.Model();
-
-                bool connected;
-                try {
-                    connected = m.GetConnectionStatus();
-                }
-                catch (Exception ex) {
-                    Dbg($"TryWaitForSharedModel: attempt={attempt} GetConnectionStatus EX", ex);
-                    connected = false;
-                }
-
-                if (!connected)
-                    Dbg($"TryWaitForSharedModel: attempt={attempt} connected=FALSE (will retry)");
-                else
-                    try {
-                        var info = m.GetInfo();
-                        Dbg(
-                            $"TryWaitForSharedModel: attempt={attempt} connected=TRUE sharedModel={info.SharedModel}");
-
-                        if (info.SharedModel) {
-                            model = m;
-                            Dbg("TryWaitForSharedModel: SUCCESS -> true");
-                            return true;
-                        }
-                    }
-                    catch (Exception ex) {
-                        Dbg($"TryWaitForSharedModel: attempt={attempt} GetInfo EX", ex);
-                    }
-            }
-            catch (Exception ex) {
-                Dbg($"TryWaitForSharedModel: attempt={attempt} new Model EX", ex);
-            }
-
-            Thread.Sleep(delay);
-        }
-
-        Dbg("TryWaitForSharedModel: TIMEOUT -> false");
-        return false;
-    }
-
-    private static bool TryGetModelSharingLogPath(out string logPath) {
-        logPath = null;
-
-        try {
-            var model = new TSM.Model();
-            if (!model.GetConnectionStatus())
-                return false;
-
-            var info = model.GetInfo();
-            if (!info.SharedModel)
-                return false;
-
-            var basePath = info.ModelPath;
-            if (string.IsNullOrWhiteSpace(basePath))
-                return false;
-
-            basePath = basePath.TrimEnd(
-                Path.DirectorySeparatorChar,
-                Path.AltDirectorySeparatorChar);
-
-            logPath = Path.Combine(basePath, "logs", "modelsharing.log");
-            return true;
-        }
-        catch {
-            logPath = null;
-            return false;
-        }
-    }
-
-    #endregion
-
     #region Model Sharing Confirmation Helpers
 
     private static string SafeReadLogToTemp(string logPath) {
@@ -913,71 +882,65 @@ public partial class MainWindow {
         string userName) {
         Dbg($"WaitAndFinalizeReadInAsync: ENTER logPath={logPath}");
 
-        const int maxAttempts = 3;
-        const int attemptDelaySeconds = 10;
-        const int waitMaxSecondsPerAttempt = 5;
+        const int waitMaxSeconds = 30;
 
-        for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-            Dbg($"WaitAndFinalizeReadInAsync: ATTEMPT {attempt}/{maxAttempts}");
-
-            try {
-                var attempt1 = attempt;
-                await Application.Current.Dispatcher.InvokeAsync(() => {
-                    AppendLog($"READ IN: próba {attempt1}/{maxAttempts}...");
-                    ReadIn();
-                });
-            }
-            catch (Exception ex) {
-                Dbg("WaitAndFinalizeReadInAsync: ReadIn invoke EX", ex);
-            }
-
-            var attemptFromUtc = DateTime.UtcNow.AddSeconds(-10);
-
-            bool ok;
-            try {
-                ok = await WaitForModelSharingConfirmationAsync(
-                    logPath,
-                    "Read-in result: OK.",
-                    attemptFromUtc,
-                    waitMaxSecondsPerAttempt
-                ).ConfigureAwait(false);
-            }
-            catch (Exception ex) {
-                Dbg("WaitAndFinalizeReadInAsync: EXCEPTION while waiting", ex);
-                ok = false;
-            }
-
-            Dbg($"WaitAndFinalizeReadInAsync: WAIT RESULT ok={ok} attempt={attempt}");
-
-            if (ok) {
-                var now = DateTime.Now;
-                SharedLicenseManager.ReadIn(info, userName, now);
-                SharedLicenseFileService.Save(SharedConstants.LicenseFilePath, info);
-
-                await Application.Current.Dispatcher.InvokeAsync(() => {
-                    if (_mode == "readin" && !IsLoaded) return;
-                    AppendLog(
-                        $"READ IN - {userName} - {now.ToString(SharedConstants.DateFormat)}");
-                    if (_mode == "readin")
-                        Close();
-                });
-
-                Dbg("WaitAndFinalizeReadInAsync: SUCCESS");
-                return;
-            }
-
-            if (attempt < maxAttempts)
-                await Task.Delay(TimeSpan.FromSeconds(attemptDelaySeconds))
-                    .ConfigureAwait(false);
+        try {
+            await Application.Current.Dispatcher.InvokeAsync(() => {
+                AppendLog("READ IN: rozpoczęto...");
+                ReadIn();
+            });
+        }
+        catch (Exception ex) {
+            Dbg("WaitAndFinalizeReadInAsync: ReadIn invoke EX", ex);
+            Interlocked.Exchange(ref _readInStarted, 0);
+            return;
         }
 
-        Dbg("WaitAndFinalizeReadInAsync: ALL ATTEMPTS FAILED");
+        var fromUtc = DateTime.UtcNow.AddSeconds(-10);
+
+        bool ok;
+        try {
+            ok = await WaitForModelSharingConfirmationAsync(
+                logPath,
+                "Read-in result: OK.",
+                fromUtc,
+                waitMaxSeconds
+            ).ConfigureAwait(false);
+        }
+        catch (Exception ex) {
+            Dbg("WaitAndFinalizeReadInAsync: EXCEPTION while waiting", ex);
+            ok = false;
+        }
+
+        Dbg($"WaitAndFinalizeReadInAsync: WAIT RESULT ok={ok}");
+
+        if (ok) {
+            var now = DateTime.Now;
+            SharedLicenseManager.ReadIn(info, userName, now);
+            SharedLicenseFileService.Save(SharedConstants.LicenseFilePath, info);
+
+            await Application.Current.Dispatcher.InvokeAsync(() => {
+                if (_mode == "readin" && !IsLoaded)
+                    return;
+
+                AppendLog($"READ IN - {userName} - {now.ToString(SharedConstants.DateFormat)}");
+
+                if (_mode == "readin")
+                    Close();
+            });
+
+            Dbg("WaitAndFinalizeReadInAsync: SUCCESS");
+            return;
+        }
 
         await Application.Current.Dispatcher.InvokeAsync(() => {
-            AppendLog($"READ IN: nie udało się po {maxAttempts} próbach.");
+            AppendLog("READ IN: nie udało się potwierdzić operacji.");
             if (_mode == "readin")
                 Close();
         });
+
+        Interlocked.Exchange(ref _readInStarted, 0);
+        Dbg("WaitAndFinalizeReadInAsync: FAILED");
     }
 
     private async Task WaitAndFinalizeWriteOutAsync(

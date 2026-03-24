@@ -50,3 +50,12 @@ Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\obj\Debug
 Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\obj\Debug\HFT_SharedTool.pdb
 Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\obj\Debug\LicenseAccountSelectionWindow.baml
 Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\obj\Debug\LicenseAccountSelectionWindow.g.cs
+Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\bin\Debug\Microsoft.Bcl.AsyncInterfaces.dll
+Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\bin\Debug\System.IO.Pipelines.dll
+Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\bin\Debug\System.Security.Cryptography.ProtectedData.dll
+Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\bin\Debug\System.Text.Encodings.Web.dll
+Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\bin\Debug\System.Text.Json.dll
+Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\bin\Debug\System.Threading.Tasks.Extensions.dll
+Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\obj\Debug\Themes\DarkTheme.baml
+Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\obj\Debug\Themes\LightTheme.baml
+Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\obj\Debug\App.baml
