@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using Path = System.IO.Path;
 using TSM = Tekla.Structures.Model;
@@ -114,9 +115,12 @@ public partial class MainWindow {
     }
 
     private async Task InitializeAfterLoadAsync() {
+        UpdateThemeToggleIconColor();
+
         if (_mode is "standalone" or "check" or "ckeck") {
             Opacity = 1;
             ShowInTaskbar = true;
+            RefreshButton.Visibility = Visibility.Visible;
             ModelDrawingLabel.Text = "Tryb odczytu pliku licencji";
             Dispatcher.BeginInvoke(new Action(BtnCheck_Click));
             return;
@@ -380,6 +384,17 @@ public partial class MainWindow {
                     ? $"Dostępna od: {info.NextUsable.Value:yyyy-MM-dd HH:mm}"
                     : "Dostępna teraz";
 
+                var isDark = ThemeService.IsDark;
+                var dotOk = isDark ? Color.FromRgb(0x6E, 0xC9, 0x6E) : Color.FromRgb(0x16, 0xA3, 0x4A);
+                var dotErr = isDark ? Color.FromRgb(0xE2, 0x4B, 0x4A) : Color.FromRgb(0xDC, 0x26, 0x26);
+
+                var actionFg = isDark
+                    ? new SolidColorBrush(Color.FromArgb(0xAA, 0x80, 0x80, 0x80))
+                    : new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80));
+                var timeFg = isDark
+                    ? new SolidColorBrush(Color.FromArgb(0x88, 0x80, 0x80, 0x80))
+                    : new SolidColorBrush(Color.FromRgb(0x9C, 0xA3, 0xAF));
+
                 var row = new StackPanel {
                     Orientation = Orientation.Horizontal,
                     Margin = new Thickness(0, 3, 0, 3)
@@ -389,8 +404,8 @@ public partial class MainWindow {
                     Width = 9,
                     Height = 9,
                     Fill = isUsable
-                        ? new SolidColorBrush(Color.FromRgb(0x6E, 0xC9, 0x6E))
-                        : new SolidColorBrush(Color.FromRgb(0xE2, 0x4B, 0x4A)),
+                        ? new SolidColorBrush(dotOk)
+                        : new SolidColorBrush(dotErr),
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(0, 0, 8, 0),
                     ToolTip = tooltipText
@@ -410,7 +425,7 @@ public partial class MainWindow {
                     row.Children.Add(new TextBlock {
                         Text = action,
                         FontSize = 11,
-                        Foreground = new SolidColorBrush(Color.FromArgb(0xAA, 0x80, 0x80, 0x80)),
+                        Foreground = actionFg,
                         VerticalAlignment = VerticalAlignment.Center,
                         Margin = new Thickness(8, 0, 8, 0)
                     });
@@ -422,7 +437,7 @@ public partial class MainWindow {
                         row.Children.Add(new TextBlock {
                             Text = actionTime.Value.ToString(SharedConstants.DateFormat),
                             FontSize = 11,
-                            Foreground = new SolidColorBrush(Color.FromArgb(0x88, 0x80, 0x80, 0x80)),
+                            Foreground = timeFg,
                             VerticalAlignment = VerticalAlignment.Center,
                             Margin = new Thickness(8, 0, 0, 0)
                         });
@@ -438,13 +453,20 @@ public partial class MainWindow {
     }
 
     private static Border MakeBadge(string text, bool isFree) {
-        var bgColor = isFree
-            ? Color.FromArgb(0x28, 0x80, 0x80, 0x80)
-            : Color.FromArgb(0x28, 0x60, 0xCD, 0xFF);
+        Color bgColor, fgColor;
 
-        var fgColor = isFree
-            ? Color.FromArgb(0xAA, 0x80, 0x80, 0x80)
-            : Color.FromRgb(0x60, 0xCD, 0xFF);
+        if (isFree) {
+            bgColor = Color.FromArgb(0x28, 0x80, 0x80, 0x80);
+            fgColor = Color.FromArgb(0xAA, 0x80, 0x80, 0x80);
+        }
+        else if (ThemeService.IsDark) {
+            bgColor = Color.FromArgb(0x28, 0x60, 0xCD, 0xFF);
+            fgColor = Color.FromRgb(0x60, 0xCD, 0xFF);
+        }
+        else {
+            bgColor = Color.FromArgb(0x22, 0x00, 0x5F, 0xB8);
+            fgColor = Color.FromRgb(0x00, 0x5F, 0xB8);
+        }
 
         return new Border {
             Background = new SolidColorBrush(bgColor),
@@ -1206,7 +1228,53 @@ public partial class MainWindow {
     }
 
     private void ThemeToggle_Click(object sender, RoutedEventArgs e) {
-        ThemeService.Toggle();
+        try {
+            ThemeService.Toggle();
+            UpdateThemeToggleIconColor();
+
+            if (_mode is "standalone" or "check" or "ckeck")
+                BtnCheck_Click();
+        }
+        catch (Exception ex) {
+            Dbg("ThemeToggle_Click: EXCEPTION", ex);
+            MessageBox.Show($"Błąd zmiany motywu: {ex.Message}");
+        }
+    }
+
+    private void UpdateThemeToggleIconColor() {
+        try {
+            if (ThemeToggleIcon == null)
+                return;
+
+            if (ThemeService.IsDark)
+                ThemeToggleIcon.Foreground =
+                    Application.Current.FindResource("TextSecondaryBrush") as Brush;
+            else
+                ThemeToggleIcon.Foreground = new SolidColorBrush(Color.FromRgb(0x00, 0x5F, 0xB8));
+        }
+        catch (Exception ex) {
+            Dbg("UpdateThemeToggleIconColor: EXCEPTION", ex);
+        }
+    }
+
+    private void BtnRefresh_Click(object sender, RoutedEventArgs e) {
+        try {
+            if (RefreshIconRotate != null) {
+                var animation = new DoubleAnimation {
+                    From = 0,
+                    To = 360,
+                    Duration = TimeSpan.FromMilliseconds(500)
+                };
+
+                RefreshIconRotate.BeginAnimation(RotateTransform.AngleProperty, animation);
+            }
+
+            BtnCheck_Click();
+        }
+        catch (Exception ex) {
+            Dbg("BtnRefresh_Click: EXCEPTION", ex);
+            MessageBox.Show($"Błąd odświeżania: {ex.Message}");
+        }
     }
 
     private void CloseButton_Click(object sender, RoutedEventArgs e) {

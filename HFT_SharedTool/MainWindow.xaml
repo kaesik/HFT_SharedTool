@@ -13,6 +13,9 @@
         WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI Variable, Segoe UI">
 
+    <Window.Resources>
+    </Window.Resources>
+
     <Border Background="{DynamicResource WindowBgBrush}"
             BorderBrush="{DynamicResource WindowBorderBrush}"
             BorderThickness="1"
@@ -27,6 +30,7 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
+            <!-- Title bar -->
             <Grid MouseLeftButtonDown="TitleBar_MouseLeftButtonDown"
                   Background="Transparent">
                 <Grid.ColumnDefinitions>
@@ -53,10 +57,31 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
-                    <Button Style="{StaticResource IconButton}"
-                            Content="&#xE793;"
+                    <Button x:Name="RefreshButton"
+                            Style="{StaticResource IconButton}"
+                            Click="BtnRefresh_Click"
+                            ToolTip="Odśwież"
+                            Visibility="Collapsed">
+                        <TextBlock Text="&#xE72C;"
+                                   FontFamily="Segoe MDL2 Assets"
+                                   x:Name="RefreshIcon"
+                                   RenderTransformOrigin="0.5,0.5">
+                            <TextBlock.RenderTransform>
+                                <RotateTransform x:Name="RefreshIconRotate" Angle="0" />
+                            </TextBlock.RenderTransform>
+                        </TextBlock>
+                    </Button>
+
+                    <Button x:Name="ThemeToggleButton"
+                            Style="{StaticResource IconButton}"
                             Click="ThemeToggle_Click"
-                            ToolTip="Przełącz motyw" />
+                            ToolTip="Przełącz motyw">
+                        <TextBlock x:Name="ThemeToggleIcon"
+                                   Text="&#xE793;"
+                                   FontFamily="Segoe MDL2 Assets"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" />
+                    </Button>
+
                     <Button Style="{StaticResource CloseButton}"
                             Content="&#xE8BB;"
                             Click="CloseButton_Click"
@@ -64,6 +89,7 @@
                 </StackPanel>
             </Grid>
 
+            <!-- Content -->
             <StackPanel Grid.Row="1" Margin="16,10,16,16">
                 <Border Height="1"
                         Background="{DynamicResource DividerColorBrush}"
@@ -85,11 +111,6 @@
                         Background="{DynamicResource DividerColorBrush}"
                         Margin="0,0,0,12" />
 
-                <TextBlock Text="LOG OPERACJI"
-                           FontSize="10"
-                           FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextTertiaryBrush}"
-                           Margin="0,0,0,6" />
 
                 <Border BorderBrush="{DynamicResource BorderColorBrush}"
                         BorderThickness="1"
