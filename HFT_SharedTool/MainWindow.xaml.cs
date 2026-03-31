@@ -59,6 +59,50 @@ public partial class MainWindow {
         }
     }
 
+    private static bool IsAnySharedModelStillOpen() {
+        try {
+            var model = new TSM.Model();
+            if (!model.GetConnectionStatus()) {
+                Dbg("IsAnySharedModelStillOpen: connection=FALSE");
+                return false;
+            }
+
+            var info = model.GetInfo();
+            var result = info.SharedModel;
+
+            Dbg($"IsAnySharedModelStillOpen: connection=TRUE sharedModel={result}");
+            return result;
+        }
+        catch (Exception ex) {
+            Dbg("IsAnySharedModelStillOpen: EXCEPTION", ex);
+            return false;
+        }
+    }
+
+    private static async Task<bool> IsAnySharedModelStillOpenWithRetryAsync(
+        int attempts = 6,
+        int delayMilliseconds = 1000) {
+        for (var attempt = 1; attempt <= attempts; attempt++) {
+            try {
+                var result = await Application.Current.Dispatcher.InvokeAsync(IsAnySharedModelStillOpen);
+                Dbg(
+                    $"IsAnySharedModelStillOpenWithRetryAsync: attempt={attempt}/{attempts} result={result}");
+
+                if (result)
+                    return true;
+            }
+            catch (Exception ex) {
+                Dbg($"IsAnySharedModelStillOpenWithRetryAsync: attempt={attempt} EXCEPTION", ex);
+            }
+
+            if (attempt < attempts)
+                await Task.Delay(delayMilliseconds);
+        }
+
+        Dbg("IsAnySharedModelStillOpenWithRetryAsync: no shared model detected");
+        return false;
+    }
+
     #endregion
 
     #region Fields
@@ -802,15 +846,16 @@ public partial class MainWindow {
         }
     }
 
-    private static bool HasConfirmationLine(string logPath, string marker, DateTime fromUtc) {
+    private static bool HasConfirmationLine(string logPath, string[] markers, DateTime fromUtc) {
         Dbg(
-            $"HasConfirmationLine: ENTER logPath={logPath} marker='{marker}' fromUtc={fromUtc:O}");
+            $"HasConfirmationLine: ENTER logPath={logPath} markers=[{string.Join(", ", markers)}] fromUtc={fromUtc:O}");
 
         string[] lines;
         try {
             lines = File.ReadAllLines(logPath);
         }
-        catch {
+        catch (Exception ex) {
+            Dbg("HasConfirmationLine: ReadAllLines EXCEPTION", ex);
             return false;
         }
 
@@ -820,40 +865,56 @@ public partial class MainWindow {
         for (var i = lines.Length - 1; i >= 0; i--) {
             var line = lines[i];
 
-            if (line.IndexOf(marker, StringComparison.OrdinalIgnoreCase) < 0)
+            var markerMatched = markers.Any(marker =>
+                !string.IsNullOrWhiteSpace(marker) &&
+                line.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            if (!markerMatched)
                 continue;
+
+            Dbg($"HasConfirmationLine: candidate line='{line}'");
 
             var startBracket = line.IndexOf('[');
             var endBracket = line.IndexOf(']', startBracket + 1);
 
-            if (startBracket < 0 || endBracket <= startBracket + 1)
-                continue;
+            if (startBracket < 0 || endBracket <= startBracket + 1) {
+                Dbg("HasConfirmationLine: candidate without timestamp in brackets -> ACCEPT");
+                return true;
+            }
 
             var tsText = line.Substring(startBracket + 1, endBracket - startBracket - 1);
 
             if (!DateTime.TryParse(
                     tsText,
                     CultureInfo.InvariantCulture,
-                    DateTimeStyles.AssumeUniversal |
-                    DateTimeStyles.AdjustToUniversal,
-                    out var tsUtc))
-                continue;
-
-            if (tsUtc >= fromUtc)
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                    out var tsUtc)) {
+                Dbg($"HasConfirmationLine: timestamp parse failed for '{tsText}' -> ACCEPT");
                 return true;
+            }
+
+            Dbg($"HasConfirmationLine: parsed tsUtc={tsUtc:O}");
+
+            if (tsUtc >= fromUtc) {
+                Dbg("HasConfirmationLine: timestamp >= fromUtc -> ACCEPT");
+                return true;
+            }
+
+            Dbg("HasConfirmationLine: timestamp < fromUtc -> reject candidate");
         }
 
+        Dbg("HasConfirmationLine: no matching line found");
         return false;
     }
 
     private static async Task<bool> WaitForModelSharingConfirmationAsync(
         string logPath,
-        string marker,
+        string[] markers,
         DateTime fromUtc,
         int maxWaitSeconds = 300,
         int delaySeconds = 5) {
         Dbg(
-            $"WaitForModelSharingConfirmationAsync: ENTER marker='{marker}' fromUtc={fromUtc:O} maxWait={maxWaitSeconds}s delay={delaySeconds}s");
+            $"WaitForModelSharingConfirmationAsync: ENTER markers=[{string.Join(", ", markers)}] fromUtc={fromUtc:O} maxWait={maxWaitSeconds}s delay={delaySeconds}s");
 
         var start = DateTime.UtcNow;
         var timeout = TimeSpan.FromSeconds(maxWaitSeconds);
@@ -869,7 +930,7 @@ public partial class MainWindow {
                 if (tempPath != null) {
                     bool found;
                     try {
-                        found = HasConfirmationLine(tempPath, marker, fromUtc);
+                        found = HasConfirmationLine(tempPath, markers, fromUtc);
                         Dbg($"WaitForModelSharingConfirmationAsync: HasConfirmationLine={found}");
                     }
                     finally {
@@ -904,7 +965,7 @@ public partial class MainWindow {
         string userName) {
         Dbg($"WaitAndFinalizeReadInAsync: ENTER logPath={logPath}");
 
-        const int waitMaxSeconds = 30;
+        const int waitMaxSecondsPerCycle = 60;
 
         try {
             await Application.Current.Dispatcher.InvokeAsync(() => {
@@ -918,51 +979,76 @@ public partial class MainWindow {
             return;
         }
 
+        var readInMarkers = new[] {
+            "Read-in result: OK.",
+            "Read in result: OK.",
+            "Read-in result: OK",
+            "Read in result: OK",
+            "Read-in OK",
+            "Read in OK"
+        };
+
         var fromUtc = DateTime.UtcNow.AddSeconds(-10);
 
-        bool ok;
-        try {
-            ok = await WaitForModelSharingConfirmationAsync(
-                logPath,
-                "Read-in result: OK.",
-                fromUtc,
-                waitMaxSeconds
-            ).ConfigureAwait(false);
-        }
-        catch (Exception ex) {
-            Dbg("WaitAndFinalizeReadInAsync: EXCEPTION while waiting", ex);
-            ok = false;
-        }
+        while (true) {
+            bool ok;
 
-        Dbg($"WaitAndFinalizeReadInAsync: WAIT RESULT ok={ok}");
+            try {
+                ok = await WaitForModelSharingConfirmationAsync(
+                    logPath,
+                    readInMarkers,
+                    fromUtc,
+                    waitMaxSecondsPerCycle
+                ).ConfigureAwait(false);
+            }
+            catch (Exception ex) {
+                Dbg("WaitAndFinalizeReadInAsync: EXCEPTION while waiting", ex);
+                ok = false;
+            }
 
-        if (ok) {
-            var now = DateTime.Now;
-            SharedLicenseManager.ReadIn(info, userName, now);
-            SharedLicenseFileService.Save(SharedConstants.LicenseFilePath, info);
+            Dbg($"WaitAndFinalizeReadInAsync: WAIT RESULT ok={ok}");
+
+            if (ok) {
+                var now = DateTime.Now;
+                SharedLicenseManager.ReadIn(info, userName, now);
+                SharedLicenseFileService.Save(SharedConstants.LicenseFilePath, info);
+
+                await Application.Current.Dispatcher.InvokeAsync(() => {
+                    if (_mode == "readin" && !IsLoaded)
+                        return;
+
+                    AppendLog($"READ IN - {userName} - {now.ToString(SharedConstants.DateFormat)}");
+
+                    if (_mode == "readin")
+                        Close();
+                });
+
+                Interlocked.Exchange(ref _readInStarted, 0);
+                Dbg("WaitAndFinalizeReadInAsync: SUCCESS");
+                return;
+            }
 
             await Application.Current.Dispatcher.InvokeAsync(() => {
-                if (_mode == "readin" && !IsLoaded)
-                    return;
-
-                AppendLog($"READ IN - {userName} - {now.ToString(SharedConstants.DateFormat)}");
-
-                if (_mode == "readin")
-                    Close();
+                AppendLog("READ IN: brak potwierdzenia po 60 sekundach.");
             });
 
-            Dbg("WaitAndFinalizeReadInAsync: SUCCESS");
-            return;
+            var shouldContinueWaiting = await AskUserIfReadInSucceededAsync().ConfigureAwait(false);
+
+            if (!shouldContinueWaiting) {
+                Dbg("WaitAndFinalizeReadInAsync: user selected NO -> stop without save");
+
+                await Application.Current.Dispatcher.InvokeAsync(() => {
+                    AppendLog("READ IN: anulowano zapis do bazy danych.");
+                    if (_mode == "readin")
+                        Close();
+                });
+
+                Interlocked.Exchange(ref _readInStarted, 0);
+                return;
+            }
+
+            Dbg("WaitAndFinalizeReadInAsync: user selected YES -> continue waiting");
         }
-
-        await Application.Current.Dispatcher.InvokeAsync(() => {
-            AppendLog("READ IN: nie udało się potwierdzić operacji.");
-            if (_mode == "readin")
-                Close();
-        });
-
-        Interlocked.Exchange(ref _readInStarted, 0);
-        Dbg("WaitAndFinalizeReadInAsync: FAILED");
     }
 
     private async Task WaitAndFinalizeWriteOutAsync(
@@ -975,13 +1061,22 @@ public partial class MainWindow {
         const int attemptDelaySeconds = 10;
         const int waitMaxSecondsPerAttempt = 5;
 
+        var writeOutMarkers = new[] {
+            "WriteOut OK",
+            "Write out OK",
+            "Write-out OK",
+            "WriteOut result: OK",
+            "Write out result: OK",
+            "Write-out result: OK"
+        };
+
         for (var attempt = 1; attempt <= maxAttempts; attempt++) {
             Dbg($"WaitAndFinalizeWriteOutAsync: ATTEMPT {attempt}/{maxAttempts}");
 
             try {
-                var attempt1 = attempt;
+                var currentAttempt = attempt;
                 await Application.Current.Dispatcher.InvokeAsync(() => {
-                    AppendLog($"WRITE OUT: próba {attempt1}/{maxAttempts}...");
+                    AppendLog($"WRITE OUT: próba {currentAttempt}/{maxAttempts}...");
                     WriteOut();
                 });
             }
@@ -995,7 +1090,7 @@ public partial class MainWindow {
             try {
                 ok = await WaitForModelSharingConfirmationAsync(
                     logPath,
-                    "WriteOut OK",
+                    writeOutMarkers,
                     attemptFromUtc,
                     waitMaxSecondsPerAttempt
                 ).ConfigureAwait(false);
@@ -1013,20 +1108,22 @@ public partial class MainWindow {
                 SharedLicenseFileService.Save(SharedConstants.LicenseFilePath, info);
 
                 await Application.Current.Dispatcher.InvokeAsync(() => {
-                    if (_mode == "writeout" && !IsLoaded) return;
-                    AppendLog(
-                        $"WRITE OUT - {userName} - {now.ToString(SharedConstants.DateFormat)}");
+                    if (_mode == "writeout" && !IsLoaded)
+                        return;
+
+                    AppendLog($"WRITE OUT - {userName} - {now.ToString(SharedConstants.DateFormat)}");
+
                     if (_mode == "writeout")
                         Close();
                 });
 
+                Interlocked.Exchange(ref _writeOutStarted, 0);
                 Dbg("WaitAndFinalizeWriteOutAsync: SUCCESS");
                 return;
             }
 
             if (attempt < maxAttempts)
-                await Task.Delay(TimeSpan.FromSeconds(attemptDelaySeconds))
-                    .ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromSeconds(attemptDelaySeconds)).ConfigureAwait(false);
         }
 
         Dbg("WaitAndFinalizeWriteOutAsync: ALL ATTEMPTS FAILED");
@@ -1036,6 +1133,34 @@ public partial class MainWindow {
             if (_mode == "writeout")
                 Close();
         });
+
+        Interlocked.Exchange(ref _writeOutStarted, 0);
+    }
+
+    private static async Task<bool> AskUserIfReadInSucceededAsync() {
+        try {
+            var result = await Application.Current.Dispatcher.InvokeAsync(() => {
+                var window = new ReadInConfirmationWindow();
+
+                var mainWindow = Application.Current?.MainWindow;
+                if (mainWindow != null &&
+                    mainWindow != window &&
+                    mainWindow.IsVisible)
+                    window.Owner = mainWindow;
+
+                var dialogResult = window.ShowDialog();
+                var confirmed = dialogResult == true && window.UserConfirmed;
+
+                Dbg($"AskUserIfReadInSucceededAsync: dialogResult={dialogResult} confirmed={confirmed}");
+                return confirmed;
+            });
+
+            return result;
+        }
+        catch (Exception ex) {
+            Dbg("AskUserIfReadInSucceededAsync: EXCEPTION", ex);
+            return false;
+        }
     }
 
     #endregion
@@ -1101,28 +1226,44 @@ public partial class MainWindow {
         HandleModelClosed();
     }
 
-    private void HandleModelClosed() {
-        Dbg($"HandleModelClosed: ENTER mode={_mode} logoutDone={_logoutDone}");
-
+    private async void HandleModelClosed() {
         try {
-            if (_mode == "autologin" &&
-                Interlocked.CompareExchange(ref _logoutDone, 1, 0) == 0) {
-                Dbg("HandleModelClosed: calling RemoveCurrentUserLogin()");
-                RemoveCurrentUserLogin();
-                Dbg("HandleModelClosed: RemoveCurrentUserLogin DONE");
+            Dbg($"HandleModelClosed: ENTER mode={_mode} logoutDone={_logoutDone}");
+
+            try {
+                if (_mode == "autologin" &&
+                    Interlocked.CompareExchange(ref _logoutDone, 1, 0) == 0) {
+                    Dbg("HandleModelClosed: checking whether another shared model is still open...");
+
+                    var sharedModelStillOpen = await IsAnySharedModelStillOpenWithRetryAsync();
+
+                    if (sharedModelStillOpen) {
+                        Dbg("HandleModelClosed: another shared model is still open -> skip logout");
+                        Interlocked.Exchange(ref _logoutDone, 0);
+                    }
+                    else {
+                        Dbg("HandleModelClosed: no shared model open -> calling RemoveCurrentUserLogin()");
+                        RemoveCurrentUserLogin();
+                        Dbg("HandleModelClosed: RemoveCurrentUserLogin DONE");
+                    }
+                }
+            }
+            catch (Exception ex) {
+                Dbg("HandleModelClosed: EXCEPTION during logout", ex);
+                Interlocked.Exchange(ref _logoutDone, 0);
+            }
+
+            try {
+                Dbg("HandleModelClosed: Dispatcher.Invoke(Close)...");
+                Application.Current.Dispatcher.Invoke(Close);
+                Dbg("HandleModelClosed: Close invoked");
+            }
+            catch (Exception ex) {
+                Dbg("HandleModelClosed: EXCEPTION while closing", ex);
             }
         }
-        catch (Exception ex) {
-            Dbg("HandleModelClosed: EXCEPTION during logout", ex);
-        }
-
-        try {
-            Dbg("HandleModelClosed: Dispatcher.Invoke(Close)...");
-            Application.Current.Dispatcher.Invoke(Close);
-            Dbg("HandleModelClosed: Close invoked");
-        }
-        catch (Exception ex) {
-            Dbg("HandleModelClosed: EXCEPTION while closing", ex);
+        catch (Exception) {
+            // ignored
         }
     }
 
@@ -1137,30 +1278,36 @@ public partial class MainWindow {
                 return;
             }
 
-            var infos = SharedLicenseFileService.LoadAll(SharedConstants.LicenseFilePath);
-
-            var toSave = infos
-                .Where(info =>
-                    info != null &&
-                    !string.IsNullOrWhiteSpace(info.LicenseId) &&
-                    info.Logins.Any(login =>
-                        login != null &&
-                        !string.IsNullOrWhiteSpace(login.User) &&
-                        string.Equals(login.User, userName, StringComparison.OrdinalIgnoreCase)))
-                .ToList();
-
-            if (toSave.Count == 0) {
-                Dbg($"RemoveCurrentUserLogin: user={userName} not found in any license");
+            if (string.IsNullOrWhiteSpace(_selectedLicenseId)) {
+                Dbg("RemoveCurrentUserLogin: selected license is empty -> nothing to remove");
                 return;
             }
 
-            foreach (var info in toSave) {
-                SharedLicenseManager.Logout(info, userName);
-                Dbg($"RemoveCurrentUserLogin: removing user={userName} from licenseId={info.LicenseId}");
+            var info = SharedLicenseFileService.LoadOrCreate(
+                SharedConstants.LicenseFilePath,
+                _selectedLicenseId);
+
+            if (info == null) {
+                Dbg($"RemoveCurrentUserLogin: LoadOrCreate returned null for licenseId={_selectedLicenseId}");
+                return;
             }
 
-            SharedLicenseFileService.SaveMany(SharedConstants.LicenseFilePath, toSave);
-            Dbg($"RemoveCurrentUserLogin: saved {toSave.Count} license(s)");
+            var userExists = info.Logins.Any(login =>
+                login != null &&
+                !string.IsNullOrWhiteSpace(login.User) &&
+                string.Equals(login.User, userName, StringComparison.OrdinalIgnoreCase));
+
+            if (!userExists) {
+                Dbg(
+                    $"RemoveCurrentUserLogin: user={userName} not found in selected licenseId={_selectedLicenseId}");
+                return;
+            }
+
+            SharedLicenseManager.Logout(info, userName);
+            Dbg($"RemoveCurrentUserLogin: removed user={userName} from licenseId={_selectedLicenseId}");
+
+            SharedLicenseFileService.Save(SharedConstants.LicenseFilePath, info);
+            Dbg($"RemoveCurrentUserLogin: saved selected licenseId={_selectedLicenseId}");
 
             DeleteSelectedLicenseId();
             _selectedLicenseId = null;
@@ -1172,37 +1319,53 @@ public partial class MainWindow {
         }
     }
 
-    protected override void OnClosed(EventArgs e) {
-        Dbg($"OnClosed: ENTER mode={_mode} logoutDone={_logoutDone} eventsNull={_events == null}");
-
+    protected override async void OnClosed(EventArgs e) {
         try {
-            if (_mode == "autologin" &&
-                Interlocked.CompareExchange(ref _logoutDone, 1, 0) == 0) {
-                Dbg("OnClosed: autologin & logout not done -> RemoveCurrentUserLogin()");
-                RemoveCurrentUserLogin();
-                Dbg("OnClosed: logout done");
-            }
-        }
-        catch (Exception ex) {
-            Dbg("OnClosed: EXCEPTION during RemoveCurrentUserLogin", ex);
-        }
+            Dbg($"OnClosed: ENTER mode={_mode} logoutDone={_logoutDone} eventsNull={_events == null}");
 
-        try {
-            if (_events != null) {
-                Dbg("OnClosed: unregistering Tekla events...");
-                _events.ModelUnloading -= OnModelUnloading;
-                _events.TeklaStructuresExit -= OnTeklaStructuresExit;
-                _events.UnRegister();
-                _events = null;
-                Dbg("OnClosed: events unregistered");
-            }
-        }
-        catch (Exception ex) {
-            Dbg("OnClosed: EXCEPTION during events unregister", ex);
-        }
+            try {
+                if (_mode == "autologin" &&
+                    Interlocked.CompareExchange(ref _logoutDone, 1, 0) == 0) {
+                    Dbg("OnClosed: checking whether another shared model is still open...");
 
-        base.OnClosed(e);
-        Dbg("OnClosed: EXIT");
+                    var sharedModelStillOpen = await IsAnySharedModelStillOpenWithRetryAsync();
+
+                    if (sharedModelStillOpen) {
+                        Dbg("OnClosed: another shared model is still open -> skip logout");
+                        Interlocked.Exchange(ref _logoutDone, 0);
+                    }
+                    else {
+                        Dbg("OnClosed: no shared model open -> RemoveCurrentUserLogin()");
+                        RemoveCurrentUserLogin();
+                        Dbg("OnClosed: logout done");
+                    }
+                }
+            }
+            catch (Exception ex) {
+                Dbg("OnClosed: EXCEPTION during RemoveCurrentUserLogin", ex);
+                Interlocked.Exchange(ref _logoutDone, 0);
+            }
+
+            try {
+                if (_events != null) {
+                    Dbg("OnClosed: unregistering Tekla events...");
+                    _events.ModelUnloading -= OnModelUnloading;
+                    _events.TeklaStructuresExit -= OnTeklaStructuresExit;
+                    _events.UnRegister();
+                    _events = null;
+                    Dbg("OnClosed: events unregistered");
+                }
+            }
+            catch (Exception ex) {
+                Dbg("OnClosed: EXCEPTION during events unregister", ex);
+            }
+
+            base.OnClosed(e);
+            Dbg("OnClosed: EXIT");
+        }
+        catch (Exception) {
+            // ignored
+        }
     }
 
     #endregion

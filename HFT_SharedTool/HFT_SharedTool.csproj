@@ -59,6 +59,9 @@
             <Generator>MSBuild:Compile</Generator>
             <SubType>Designer</SubType>
         </ApplicationDefinition>
+        <Compile Include="ReadInConfirmationWindow.xaml.cs">
+            <DependentUpon>ReadInConfirmationWindow.xaml</DependentUpon>
+        </Compile>
         <Compile Include="SharedConstants.cs"/>
         <Compile Include="SharedLicenseFileService.cs"/>
         <Compile Include="SharedLicenseInfo.cs"/>
@@ -81,6 +84,7 @@
             <DependentUpon>MainWindow.xaml</DependentUpon>
             <SubType>Code</SubType>
         </Compile>
+        <Page Include="ReadInConfirmationWindow.xaml"/>
         <Page Include="Themes\DarkTheme.xaml"/>
         <Page Include="Themes\LightTheme.xaml"/>
     </ItemGroup>
