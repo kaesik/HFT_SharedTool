@@ -116,15 +116,34 @@
                         BorderThickness="1"
                         CornerRadius="4"
                         Background="{DynamicResource ControlBgBrush}">
-                    <ScrollViewer x:Name="LogScrollViewer"
-                                  VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled"
-                                  MinHeight="260"
-                                  MaxHeight="600"
-                                  Padding="12">
-                        <StackPanel x:Name="LogPanel"
-                                    TextBlock.Foreground="{DynamicResource TextPrimaryBrush}" />
-                    </ScrollViewer>
+                    <StackPanel>
+                        <Grid Margin="12,8,12,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="18" />
+                                <ColumnDefinition Width="115" />
+                                <ColumnDefinition Width="220" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="2"
+                                       Text="ZALOGOWANI"
+                                       FontSize="9"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextTertiaryBrush}"
+                                       VerticalAlignment="Bottom"
+                                       Margin="0,0,0,2" />
+                        </Grid>
+
+                        <ScrollViewer x:Name="LogScrollViewer"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      MinHeight="260"
+                                      MaxHeight="600"
+                                      Padding="12,0,12,12">
+                            <StackPanel x:Name="LogPanel"
+                                        TextBlock.Foreground="{DynamicResource TextPrimaryBrush}" />
+                        </ScrollViewer>
+                    </StackPanel>
                 </Border>
             </StackPanel>
         </Grid>

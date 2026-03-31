@@ -10,6 +10,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 using Path = System.IO.Path;
 using TSM = Tekla.Structures.Model;
@@ -111,6 +112,7 @@ public partial class MainWindow {
     private readonly string _trimbleEmail;
     private bool _autoLoginDone;
     private int _autoLoginWatcherStarted;
+    private string _autoLoginLicenseId;
     private TSM.Events _events;
     private int _logoutDone;
     private string _selectedLicenseId;
@@ -401,28 +403,31 @@ public partial class MainWindow {
                 var hasRead = info.ReadTime.HasValue;
                 var hasWrite = info.WriteTime.HasValue;
 
-                string action, actionUser;
+                string actionUser;
                 DateTime? actionTime;
 
                 if (hasRead && (!hasWrite || info.ReadTime.Value > info.WriteTime.Value)) {
-                    action = "READ IN";
                     actionUser = info.ReadUser ?? "";
                     actionTime = info.ReadTime;
                 }
                 else if (hasWrite) {
-                    action = "WRITE OUT";
                     actionUser = info.WriteUser ?? "";
                     actionTime = info.WriteTime;
                 }
                 else {
-                    action = "";
                     actionUser = "";
                     actionTime = null;
                 }
 
-                var loggedUser = info.Logins.Count > 0
-                    ? string.Join(", ", info.Logins.Select(x => x.User))
-                    : "WOLNE";
+                var currentUser = Environment.UserName;
+
+                var loggedUsers = info.Logins
+                    .Where(x => x != null && !string.IsNullOrWhiteSpace(x.User))
+                    .Select(x => x.User)
+                    .ToList();
+
+                var isCurrentUserLoggedHere = loggedUsers.Any(user =>
+                    string.Equals(user, currentUser, StringComparison.OrdinalIgnoreCase));
 
                 var tooltipText = info.NextUsable.HasValue
                     ? $"Dostępna od: {info.NextUsable.Value:yyyy-MM-dd HH:mm}"
@@ -430,61 +435,92 @@ public partial class MainWindow {
 
                 var isDark = ThemeService.IsDark;
                 var dotOk = isDark ? Color.FromRgb(0x6E, 0xC9, 0x6E) : Color.FromRgb(0x16, 0xA3, 0x4A);
+                var dotActive = isDark ? Color.FromRgb(0x7C, 0xFF, 0x9A) : Color.FromRgb(0x63, 0xF5, 0x87);
                 var dotErr = isDark ? Color.FromRgb(0xE2, 0x4B, 0x4A) : Color.FromRgb(0xDC, 0x26, 0x26);
 
-                var actionFg = isDark
-                    ? new SolidColorBrush(Color.FromArgb(0xAA, 0x80, 0x80, 0x80))
+                var infoFg = isDark
+                    ? new SolidColorBrush(Color.FromArgb(0xAA, 0xB8, 0xB8, 0xB8))
                     : new SolidColorBrush(Color.FromRgb(0x6B, 0x72, 0x80));
-                var timeFg = isDark
-                    ? new SolidColorBrush(Color.FromArgb(0x88, 0x80, 0x80, 0x80))
-                    : new SolidColorBrush(Color.FromRgb(0x9C, 0xA3, 0xAF));
 
-                var row = new StackPanel {
-                    Orientation = Orientation.Horizontal,
-                    Margin = new Thickness(0, 3, 0, 3)
+                var row = new Grid {
+                    Margin = new Thickness(0, 4, 0, 4)
                 };
 
-                row.Children.Add(new Ellipse {
-                    Width = 9,
-                    Height = 9,
-                    Fill = isUsable
-                        ? new SolidColorBrush(dotOk)
-                        : new SolidColorBrush(dotErr),
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(0, 0, 8, 0),
-                    ToolTip = tooltipText
-                });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-                row.Children.Add(new TextBlock {
+                var dotColor = isUsable ? dotOk : dotErr;
+
+                var dot = new Ellipse {
+                    Width = 10,
+                    Height = 10,
+                    Fill = new SolidColorBrush(dotColor),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    ToolTip = tooltipText
+                };
+
+                if (isCurrentUserLoggedHere) {
+                    dot.Effect = new DropShadowEffect {
+                        Color = dotActive,
+                        BlurRadius = 12,
+                        ShadowDepth = 0,
+                        Opacity = 1
+                    };
+                    dot.Fill = new SolidColorBrush(dotActive);
+                }
+
+                Grid.SetColumn(dot, 0);
+                row.Children.Add(dot);
+
+                var licenseText = new TextBlock {
                     Text = info.LicenseId,
                     FontSize = 13,
                     Foreground = Application.Current.FindResource("TextPrimaryBrush") as Brush,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Margin = new Thickness(0, 0, 8, 0)
-                });
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(licenseText, 1);
+                row.Children.Add(licenseText);
 
-                row.Children.Add(MakeBadge(loggedUser, loggedUser == "WOLNE"));
+                var loggedUsersPanel = new WrapPanel {
+                    Orientation = Orientation.Horizontal,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
 
-                if (!string.IsNullOrEmpty(action)) {
-                    row.Children.Add(new TextBlock {
-                        Text = action,
-                        FontSize = 11,
-                        Foreground = actionFg,
+                if (loggedUsers.Count == 0)
+                    loggedUsersPanel.Children.Add(MakeBadge("WOLNE", true, false));
+                else
+                    foreach (var user in loggedUsers) {
+                        var isCurrentUser = string.Equals(user, currentUser, StringComparison.OrdinalIgnoreCase);
+                        loggedUsersPanel.Children.Add(MakeBadge(user, false, isCurrentUser));
+                    }
+
+                Grid.SetColumn(loggedUsersPanel, 2);
+                row.Children.Add(loggedUsersPanel);
+
+                if (actionTime.HasValue && !string.IsNullOrWhiteSpace(actionUser)) {
+                    var actionPanel = new StackPanel {
+                        Orientation = Orientation.Horizontal,
                         VerticalAlignment = VerticalAlignment.Center,
-                        Margin = new Thickness(8, 0, 8, 0)
+                        Margin = new Thickness(6, 0, 0, 0)
+                    };
+
+                    actionPanel.Children.Add(new TextBlock {
+                        Text = $"{FormatTimeAgo(actionTime.Value)} przez ",
+                        FontSize = 11,
+                        Foreground = infoFg,
+                        VerticalAlignment = VerticalAlignment.Center
                     });
 
-                    if (!string.IsNullOrEmpty(actionUser))
-                        row.Children.Add(MakeBadge(actionUser, false));
+                    var isActionByCurrentUser =
+                        string.Equals(actionUser, currentUser, StringComparison.OrdinalIgnoreCase);
 
-                    if (actionTime.HasValue)
-                        row.Children.Add(new TextBlock {
-                            Text = actionTime.Value.ToString(SharedConstants.DateFormat),
-                            FontSize = 11,
-                            Foreground = timeFg,
-                            VerticalAlignment = VerticalAlignment.Center,
-                            Margin = new Thickness(8, 0, 0, 0)
-                        });
+                    actionPanel.Children.Add(MakeBadge(actionUser, false, isActionByCurrentUser));
+
+                    Grid.SetColumn(actionPanel, 3);
+                    row.Children.Add(actionPanel);
                 }
 
                 LogPanel.Children.Add(row);
@@ -496,34 +532,69 @@ public partial class MainWindow {
         }
     }
 
-    private static Border MakeBadge(string text, bool isFree) {
-        Color bgColor, fgColor;
+    private static string FormatTimeAgo(DateTime dateTime) {
+        var now = DateTime.Now;
+        var diff = now - dateTime;
+
+        if (diff.TotalMinutes < 0)
+            diff = TimeSpan.Zero;
+
+        switch (diff.TotalDays) {
+            case >= 2:
+                return $"{(int)diff.TotalDays} dni temu";
+            case >= 1:
+                return "1 dzień temu";
+        }
+
+        var totalHours = (int)diff.TotalHours;
+        var minutes = diff.Minutes;
+
+        return $"{totalHours}:{minutes:00}h temu";
+    }
+
+    private static Border MakeBadge(string text, bool isFree, bool isCurrentUser) {
+        Color bgColor;
+        Color fgColor;
 
         if (isFree) {
-            bgColor = Color.FromArgb(0x28, 0x80, 0x80, 0x80);
-            fgColor = Color.FromArgb(0xAA, 0x80, 0x80, 0x80);
+            bgColor = Color.FromArgb(0x24, 0x90, 0x90, 0x90);
+            fgColor = Color.FromArgb(0xCC, 0xA0, 0xA0, 0xA0);
         }
-        else if (ThemeService.IsDark) {
-            bgColor = Color.FromArgb(0x28, 0x60, 0xCD, 0xFF);
-            fgColor = Color.FromRgb(0x60, 0xCD, 0xFF);
+        else if (isCurrentUser) {
+            if (ThemeService.IsDark) {
+                bgColor = Color.FromArgb(0x32, 0x4C, 0xD9, 0x6B);
+                fgColor = Color.FromRgb(0x7C, 0xFF, 0x9A);
+            }
+            else {
+                bgColor = Color.FromArgb(0x2C, 0x22, 0xC5, 0x5E);
+                fgColor = Color.FromRgb(0x16, 0xA3, 0x4A);
+            }
         }
         else {
-            bgColor = Color.FromArgb(0x22, 0x00, 0x5F, 0xB8);
-            fgColor = Color.FromRgb(0x00, 0x5F, 0xB8);
+            if (ThemeService.IsDark) {
+                bgColor = Color.FromArgb(0x30, 0x3D, 0x7E, 0xA6);
+                fgColor = Color.FromRgb(0x7D, 0xD3, 0xFC);
+            }
+            else {
+                bgColor = Color.FromArgb(0x22, 0x00, 0x5F, 0xB8);
+                fgColor = Color.FromRgb(0x00, 0x5F, 0xB8);
+            }
         }
 
-        return new Border {
+        var border = new Border {
             Background = new SolidColorBrush(bgColor),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(7, 1, 7, 2),
+            Margin = new Thickness(0, 0, 6, 0),
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 0, 0),
             Child = new TextBlock {
                 Text = text,
                 FontSize = 11,
                 Foreground = new SolidColorBrush(fgColor)
             }
         };
+
+        return border;
     }
 
     #endregion
@@ -1196,16 +1267,21 @@ public partial class MainWindow {
                     SharedConstants.LicenseFilePath, _selectedLicenseId);
                 Dbg("StartAutoLoginWatcher: LoadOrCreate OK");
 
+                SharedLicenseManager.Logout(info, userName);
+                Dbg("StartAutoLoginWatcher: removed stale login before adding fresh one");
+
                 SharedLicenseManager.Login(info, userName, loginTime);
                 Dbg("StartAutoLoginWatcher: SharedLicenseManager.Login OK");
 
                 SharedLicenseFileService.Save(SharedConstants.LicenseFilePath, info);
                 Dbg($"StartAutoLoginWatcher: Save OK -> {SharedConstants.LicenseFilePath}");
 
+                _autoLoginLicenseId = _selectedLicenseId;
                 _autoLoginDone = true;
                 AppendLog(
                     $"LOG IN - {userName} - {loginTime.ToString(SharedConstants.DateFormat)}");
-                Dbg("StartAutoLoginWatcher: _autoLoginDone=true + UI log appended");
+                Dbg(
+                    $"StartAutoLoginWatcher: _autoLoginDone=true _autoLoginLicenseId={_autoLoginLicenseId} + UI log appended");
             }
             catch (Exception ex) {
                 Dbg("StartAutoLoginWatcher: OUTER EXCEPTION", ex);
@@ -1226,26 +1302,17 @@ public partial class MainWindow {
         HandleModelClosed();
     }
 
-    private async void HandleModelClosed() {
+    private void HandleModelClosed() {
         try {
-            Dbg($"HandleModelClosed: ENTER mode={_mode} logoutDone={_logoutDone}");
+            Dbg($"HandleModelClosed: ENTER mode={_mode} autoLoginDone={_autoLoginDone}");
 
             try {
                 if (_mode == "autologin" &&
+                    _autoLoginDone &&
                     Interlocked.CompareExchange(ref _logoutDone, 1, 0) == 0) {
-                    Dbg("HandleModelClosed: checking whether another shared model is still open...");
-
-                    var sharedModelStillOpen = await IsAnySharedModelStillOpenWithRetryAsync();
-
-                    if (sharedModelStillOpen) {
-                        Dbg("HandleModelClosed: another shared model is still open -> skip logout");
-                        Interlocked.Exchange(ref _logoutDone, 0);
-                    }
-                    else {
-                        Dbg("HandleModelClosed: no shared model open -> calling RemoveCurrentUserLogin()");
-                        RemoveCurrentUserLogin();
-                        Dbg("HandleModelClosed: RemoveCurrentUserLogin DONE");
-                    }
+                    Dbg("HandleModelClosed: calling RemoveCurrentUserLogin()");
+                    RemoveCurrentUserLogin();
+                    Dbg("HandleModelClosed: RemoveCurrentUserLogin DONE");
                 }
             }
             catch (Exception ex) {
@@ -1256,14 +1323,13 @@ public partial class MainWindow {
             try {
                 Dbg("HandleModelClosed: Dispatcher.Invoke(Close)...");
                 Application.Current.Dispatcher.Invoke(Close);
-                Dbg("HandleModelClosed: Close invoked");
             }
             catch (Exception ex) {
                 Dbg("HandleModelClosed: EXCEPTION while closing", ex);
             }
         }
-        catch (Exception) {
-            // ignored
+        catch (Exception ex) {
+            Dbg("HandleModelClosed: OUTER EXCEPTION", ex);
         }
     }
 
@@ -1272,23 +1338,24 @@ public partial class MainWindow {
 
         try {
             var userName = Environment.UserName;
+            var licenseIdToRemove = _autoLoginLicenseId;
 
             if (string.IsNullOrWhiteSpace(userName)) {
                 Dbg("RemoveCurrentUserLogin: userName is empty -> nothing to remove");
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(_selectedLicenseId)) {
-                Dbg("RemoveCurrentUserLogin: selected license is empty -> nothing to remove");
+            if (string.IsNullOrWhiteSpace(licenseIdToRemove)) {
+                Dbg("RemoveCurrentUserLogin: autoLogin license is empty -> nothing to remove");
                 return;
             }
 
             var info = SharedLicenseFileService.LoadOrCreate(
                 SharedConstants.LicenseFilePath,
-                _selectedLicenseId);
+                licenseIdToRemove);
 
             if (info == null) {
-                Dbg($"RemoveCurrentUserLogin: LoadOrCreate returned null for licenseId={_selectedLicenseId}");
+                Dbg($"RemoveCurrentUserLogin: LoadOrCreate returned null for licenseId={licenseIdToRemove}");
                 return;
             }
 
@@ -1298,20 +1365,20 @@ public partial class MainWindow {
                 string.Equals(login.User, userName, StringComparison.OrdinalIgnoreCase));
 
             if (!userExists) {
-                Dbg(
-                    $"RemoveCurrentUserLogin: user={userName} not found in selected licenseId={_selectedLicenseId}");
+                Dbg($"RemoveCurrentUserLogin: user={userName} not found in licenseId={licenseIdToRemove}");
                 return;
             }
 
             SharedLicenseManager.Logout(info, userName);
-            Dbg($"RemoveCurrentUserLogin: removed user={userName} from licenseId={_selectedLicenseId}");
+            Dbg($"RemoveCurrentUserLogin: removed user={userName} from licenseId={licenseIdToRemove}");
 
             SharedLicenseFileService.Save(SharedConstants.LicenseFilePath, info);
-            Dbg($"RemoveCurrentUserLogin: saved selected licenseId={_selectedLicenseId}");
+            Dbg($"RemoveCurrentUserLogin: saved licenseId={licenseIdToRemove}");
 
             DeleteSelectedLicenseId();
             _selectedLicenseId = null;
-            Dbg("RemoveCurrentUserLogin: local selected license cleared");
+            _autoLoginLicenseId = null;
+            Dbg("RemoveCurrentUserLogin: local license data cleared");
         }
         catch (Exception ex) {
             Dbg("RemoveCurrentUserLogin: EXCEPTION", ex);
@@ -1319,26 +1386,17 @@ public partial class MainWindow {
         }
     }
 
-    protected override async void OnClosed(EventArgs e) {
+    protected override void OnClosed(EventArgs e) {
         try {
-            Dbg($"OnClosed: ENTER mode={_mode} logoutDone={_logoutDone} eventsNull={_events == null}");
+            Dbg($"OnClosed: ENTER mode={_mode} autoLoginDone={_autoLoginDone} logoutDone={_logoutDone}");
 
             try {
                 if (_mode == "autologin" &&
+                    _autoLoginDone &&
                     Interlocked.CompareExchange(ref _logoutDone, 1, 0) == 0) {
-                    Dbg("OnClosed: checking whether another shared model is still open...");
-
-                    var sharedModelStillOpen = await IsAnySharedModelStillOpenWithRetryAsync();
-
-                    if (sharedModelStillOpen) {
-                        Dbg("OnClosed: another shared model is still open -> skip logout");
-                        Interlocked.Exchange(ref _logoutDone, 0);
-                    }
-                    else {
-                        Dbg("OnClosed: no shared model open -> RemoveCurrentUserLogin()");
-                        RemoveCurrentUserLogin();
-                        Dbg("OnClosed: logout done");
-                    }
+                    Dbg("OnClosed: autologin & logout not done -> RemoveCurrentUserLogin()");
+                    RemoveCurrentUserLogin();
+                    Dbg("OnClosed: logout done");
                 }
             }
             catch (Exception ex) {
@@ -1348,12 +1406,10 @@ public partial class MainWindow {
 
             try {
                 if (_events != null) {
-                    Dbg("OnClosed: unregistering Tekla events...");
                     _events.ModelUnloading -= OnModelUnloading;
                     _events.TeklaStructuresExit -= OnTeklaStructuresExit;
                     _events.UnRegister();
                     _events = null;
-                    Dbg("OnClosed: events unregistered");
                 }
             }
             catch (Exception ex) {
@@ -1363,8 +1419,8 @@ public partial class MainWindow {
             base.OnClosed(e);
             Dbg("OnClosed: EXIT");
         }
-        catch (Exception) {
-            // ignored
+        catch (Exception ex) {
+            Dbg("OnClosed: OUTER EXCEPTION", ex);
         }
     }
 
