@@ -59,3 +59,5 @@ Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\bin\Debug
 Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\obj\Debug\Themes\DarkTheme.baml
 Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\obj\Debug\Themes\LightTheme.baml
 Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\obj\Debug\App.baml
+Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\obj\Debug\ReadInConfirmationWindow.baml
+Z:\000_PMJ\Tekla\HFT_SharedTool\Kod\HFT_SharedTool_2024\HFT_SharedTool\obj\Debug\ReadInConfirmationWindow.g.cs
